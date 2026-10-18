@@ -245,9 +245,30 @@ export const storage = {
     }
   },
 
-  getUserAccount(userId: string): UserAccount | null {
+  getUserAccount(query: string): UserAccount | null {
+    if (!query) return null;
+    const clean = query.trim().toLowerCase().replace(/^@/, '');
     const accounts = this.getUserAccounts();
-    return accounts.find((a) => a.id === userId || a.username.toLowerCase() === userId.toLowerCase()) || null;
+    return (
+      accounts.find(
+        (a) =>
+          a.id.toLowerCase() === clean ||
+          a.username.toLowerCase() === clean ||
+          a.email.toLowerCase() === clean ||
+          a.email.toLowerCase() === query.trim().toLowerCase()
+      ) || null
+    );
+  },
+
+  isLoginIdTaken(loginId: string, excludeUserId?: string): boolean {
+    const clean = loginId.trim().toLowerCase().replace(/^@/, '');
+    if (!clean) return false;
+    const accounts = this.getUserAccounts();
+    return accounts.some(
+      (a) =>
+        a.id !== excludeUserId &&
+        (a.username.toLowerCase() === clean || a.email.toLowerCase() === clean)
+    );
   },
 
   saveUserAccount(account: UserAccount) {

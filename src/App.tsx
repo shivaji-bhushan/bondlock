@@ -43,8 +43,11 @@ export function App() {
   // Vault membership sync trigger
   const [membershipSync, setMembershipSync] = useState(0);
 
+  // Custom User ID state (stored in storage.getActiveUserId)
+  const [customUserId, setCustomUserId] = useState<string | null>(() => storage.getActiveUserId());
+
   // Derive active user account
-  const activeUserId = authenticatedUser === 'partner2' ? 'user_ananya' : 'user_aarav';
+  const activeUserId = customUserId || (authenticatedUser === 'partner2' ? 'user_ananya' : 'user_aarav');
   const currentUserAccount: UserAccount = storage.getUserAccount(activeUserId) || {
     id: activeUserId,
     email: `${authenticatedUser || 'aarav'}@bondlock.vault`,
@@ -207,11 +210,14 @@ export function App() {
     setActiveTab('lock');
   };
 
-  const handleLoginSuccess = (partnerId: 'partner1' | 'partner2', targetRoomCode?: string) => {
+  const handleLoginSuccess = (partnerId: 'partner1' | 'partner2', targetRoomCode?: string, userId?: string) => {
     const code = (targetRoomCode || roomCode).toUpperCase().trim();
     setAuthenticatedUser(partnerId);
     setCurrentRole(partnerId);
     setRoomCode(code);
+    const resolvedUserId = userId || (partnerId === 'partner2' ? 'user_ananya' : 'user_aarav');
+    setCustomUserId(resolvedUserId);
+    storage.setActiveUserId(resolvedUserId);
     realtimeVault.initialize(code, partnerId);
     try {
       localStorage.setItem('bondlock_auth_user', partnerId);
@@ -224,6 +230,8 @@ export function App() {
     try {
       localStorage.removeItem('bondlock_auth_user');
     } catch (e) {}
+    storage.setActiveUserId(null);
+    setCustomUserId(null);
     setAuthenticatedUser(null);
     setIsUnlocked(false);
     setUnlockState('LOCKED');
@@ -235,6 +243,9 @@ export function App() {
   const handleChangeRole = (newRole: 'partner1' | 'partner2') => {
     setCurrentRole(newRole);
     setAuthenticatedUser(newRole);
+    const roleUserId = newRole === 'partner2' ? 'user_ananya' : 'user_aarav';
+    setCustomUserId(roleUserId);
+    storage.setActiveUserId(roleUserId);
     try {
       localStorage.setItem('bondlock_auth_user', newRole);
     } catch (e) {}
@@ -247,6 +258,9 @@ export function App() {
     sound.playSoftClick();
     setCurrentRole(newRole);
     setAuthenticatedUser(newRole);
+    const devUserId = newRole === 'partner1' ? 'user_aarav' : 'user_ananya';
+    setCustomUserId(devUserId);
+    storage.setActiveUserId(devUserId);
     try {
       localStorage.setItem('bondlock_auth_user', newRole);
     } catch (e) {}
