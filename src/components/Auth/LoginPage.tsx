@@ -23,9 +23,9 @@ import {
   Zap,
   Users,
   AtSign,
-  PlusCircle,
-  Link2,
-  Dices
+  Fingerprint,
+  Dices,
+  Smartphone
 } from 'lucide-react';
 import { CoupleProfile, Vault, UserAccount } from '../../types/vault';
 import { verifyPasskey, isPlatformAuthenticatorAvailable } from '../../utils/webAuthn';
@@ -40,13 +40,6 @@ interface LoginPageProps {
   currentRoomCode?: string;
   onUpdateRoomCode?: (newCode: string) => void;
 }
-
-// 3 Background Photos matching the 3 screens in the user's reference image
-const SCREEN_PHOTOS = {
-  login: 'https://images.unsplash.com/photo-1522673607200-164d1b6ce486?auto=format&fit=crop&w=1000&q=85', // Indoor romantic couple looking lovingly
-  welcome: 'https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?auto=format&fit=crop&w=1000&q=85', // Sunset beach romantic embrace
-  signup: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=1000&q=85', // Smiling happy outdoor couple
-};
 
 // Preset Avatars for Profile Photo
 const PRESET_AVATARS = [
@@ -72,13 +65,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   currentRoomCode = '882104',
   onUpdateRoomCode,
 }) => {
-  // Screen state: 'login' | 'signup' | 'welcome'
-  const [screenMode, setScreenMode] = useState<'login' | 'signup' | 'welcome'>('login');
+  // Screen state: 'login' | 'signup'
+  const [screenMode, setScreenMode] = useState<'login' | 'signup'>('login');
 
   // Vault Connection & Role Selection
   const [selectedRole, setSelectedRole] = useState<'partner1' | 'partner2'>('partner1');
   const [vaultRoomCode, setVaultRoomCode] = useState(currentRoomCode);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
 
   // Sign In Form State
   const [loginIdentifier, setLoginIdentifier] = useState('aarav');
@@ -126,7 +120,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       const vault = storage.getMemberVault(account.id);
       setDetectedVault(vault);
     } else {
-      // Check if matches default Aarav or Ananya
       if (query.toLowerCase().includes('aarav')) {
         setDetectedVault(storage.getMemberVault('user_aarav'));
       } else if (query.toLowerCase().includes('ananya')) {
@@ -213,11 +206,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       return;
     }
 
-    // Try finding registered account
     const account = storage.getUserAccount(query);
     const expectedPin = account?.pin || (selectedRole === 'partner1' ? (partner1.pin || '1404') : (partner2.pin || '2512'));
 
-    // Forgiving validation: accepts account PIN, partner PIN or universal test PIN 1234
     if (pin === expectedPin || pin === '1234' || pin === '1404' || pin === '2512') {
       sound.playPartnerApproved();
       try {
@@ -278,16 +269,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     let finalVaultName = newVaultName.trim() || `${name}'s Private Sanctuary`;
 
     if (vaultOption === 'create') {
-      // 1. Create a brand new vault
       const createdVault = storage.createVault(finalVaultName, newVaultCode);
       assignedVaultId = createdVault.id;
       assignedRoomCode = createdVault.inviteCode;
       assignedRole = 'partner1';
-
-      // Link new user in vault_members as creator (partner1)
       storage.linkUserToVault(newUserId, assignedVaultId, 'partner1');
     } else {
-      // 2. Join partner's existing vault
       const code = joinPartnerCode.trim().toUpperCase();
       let existingVault = storage.getVaultByCode(code);
       if (!existingVault) {
@@ -297,12 +284,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       assignedRoomCode = existingVault.inviteCode;
       assignedRole = 'partner2';
       finalVaultName = existingVault.name;
-
-      // Link new user in vault_members as partner2
       storage.linkUserToVault(newUserId, assignedVaultId, 'partner2');
     }
 
-    // Save User Account with Unique Login ID
     const newUserAccount: UserAccount = {
       id: newUserId,
       email: signUpEmail.trim() || `${loginId}@bondlock.vault`,
@@ -315,7 +299,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     };
     storage.saveUserAccount(newUserAccount);
 
-    // Update couple profile
     const newProfile: CoupleProfile = {
       ...coupleProfile,
       partner1: assignedRole === 'partner1' ? {
@@ -349,7 +332,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       confetti({ particleCount: 90, spread: 80, origin: { y: 0.6 } });
     } catch (e) {}
 
-    // Automatically log in with new unique user ID
     onLoginSuccess(assignedRole, assignedRoomCode, newUserId);
   };
 
@@ -370,161 +352,137 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     setLoginError('Biometric passkey not available on this device. Please enter your 4-digit PIN.');
   };
 
-  // Reset Demo
-  const handleResetDemo = () => {
-    sound.playSoftClick();
-    if (onUpdateCoupleProfile) {
-      onUpdateCoupleProfile(initialCoupleProfile);
-    }
-    setSelectedRole('partner1');
-    setVaultRoomCode('882104');
-    setLoginIdentifier('aarav');
-    setLoginPassword('1404');
-    setProfilePhoto(PRESET_AVATARS[0]);
-    setLoginError('');
-    setScreenMode('login');
-  };
-
-  // Active top image
-  const activeImage = screenMode === 'signup' 
-    ? SCREEN_PHOTOS.signup 
-    : screenMode === 'welcome' 
-      ? SCREEN_PHOTOS.welcome 
-      : SCREEN_PHOTOS.login;
-
   return (
-    <div className="min-h-screen w-full bg-[#FAF0F5] flex items-center justify-center p-0 sm:p-4 md:p-6 font-sans selection:bg-[#FF4B72] selection:text-white select-none relative">
+    <div className="min-h-screen w-full bg-[#F6F7FB] flex items-center justify-center p-2 sm:p-4 md:p-6 lg:p-8 font-sans selection:bg-[#6C5DD3] selection:text-white select-none">
       
-      {/* Mobile Device Frame Container */}
-      <div className="relative w-full max-w-[420px] h-[100dvh] sm:h-[860px] bg-white sm:rounded-[44px] shadow-2xl sm:border-[8px] sm:border-white/80 overflow-hidden flex flex-col justify-between text-stone-900">
+      {/* Responsive Main Container (Auto-adapts between Phone & Desktop) */}
+      <div className="w-full max-w-6xl min-h-[640px] lg:min-h-[720px] bg-white rounded-3xl lg:rounded-[40px] shadow-2xl border border-stone-100 overflow-hidden grid grid-cols-1 lg:grid-cols-2">
         
-        {/* ================= TOP HALF: Full-Bleed Romantic Photo ================= */}
-        <div className="relative w-full h-[44%] sm:h-[46%] overflow-hidden bg-stone-900 shrink-0">
-          <AnimatePresence mode="wait">
-            <motion.img
-              key={screenMode}
-              src={activeImage}
-              alt="Romantic Couple"
-              initial={{ opacity: 0, scale: 1.05 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ duration: 0.5 }}
-              className="w-full h-full object-cover object-center"
-            />
-          </AnimatePresence>
+        {/* ================= LEFT COLUMN: Clean White Auth Form (Reference Image) ================= */}
+        <div className="flex-1 p-6 sm:p-10 lg:p-14 flex flex-col justify-between overflow-y-auto">
+          
+          <div>
+            {/* Top Brand Logo pill */}
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded-md bg-[#6C5DD3] flex items-center justify-center shadow-xs">
+                  <div className="w-1.5 h-1.5 rounded-full bg-white" />
+                </div>
+                <span className="font-extrabold text-stone-900 tracking-tight text-lg font-sans">
+                  BondLock
+                </span>
+                <span className="hidden sm:inline-block text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#6C5DD3]/10 text-[#6C5DD3] font-semibold border border-[#6C5DD3]/20">
+                  Zero-Knowledge Dual Locker
+                </span>
+              </div>
 
-          {/* iOS Top Status Bar (9:41, Signal, Battery) */}
-          <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between px-7 pt-3.5 text-xs font-semibold text-white drop-shadow-md">
-            <span>9:41</span>
-            <div className="flex items-center gap-1.5 text-xs">
-              <span className="text-[10px] font-mono">5G</span>
-              <div className="w-5 h-2.5 rounded-xs border border-white p-0.5 flex items-center">
-                <div className="w-full h-full bg-white rounded-2xs" />
+              {/* Segmented [ Log in ] [ Sign up ] pill */}
+              <div className="p-0.5 rounded-full bg-stone-100 flex items-center border border-stone-200">
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.playSoftClick();
+                    setScreenMode('login');
+                  }}
+                  className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${
+                    screenMode === 'login'
+                      ? 'bg-[#6C5DD3] text-white shadow-xs'
+                      : 'text-stone-500 hover:text-stone-900'
+                  }`}
+                >
+                  Log in
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.playSoftClick();
+                    setScreenMode('signup');
+                  }}
+                  className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${
+                    screenMode === 'signup'
+                      ? 'bg-[#6C5DD3] text-white shadow-xs'
+                      : 'text-stone-500 hover:text-stone-900'
+                  }`}
+                >
+                  Sign up
+                </button>
               </div>
             </div>
-          </div>
 
-          {/* Floating Pill Badges */}
-          <div className="absolute top-12 left-5 z-20 flex flex-wrap gap-1.5 pointer-events-none">
-            <span className="px-2.5 py-1 rounded-full bg-black/45 backdrop-blur-md text-[10px] font-mono text-white/90 border border-white/20 flex items-center gap-1 shadow-sm">
-              <Heart className="w-3 h-3 text-[#FF4D9D] fill-[#FF4D9D]" />
-              <span>Zero-Knowledge Couple Vault</span>
-            </span>
-          </div>
+            {/* Heading Typography matching Reference Image */}
+            <div className="mb-6">
+              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-stone-900 tracking-tight leading-tight">
+                {screenMode === 'login' ? (
+                  <>
+                    Holla,<br />
+                    Welcome Back
+                  </>
+                ) : (
+                  <>
+                    Create Account,<br />
+                    Build Your Vault
+                  </>
+                )}
+              </h1>
+              <p className="text-xs sm:text-sm text-stone-500 font-sans mt-2">
+                {screenMode === 'login' 
+                  ? "Hey, welcome back to your special place" 
+                  : "Register a unique ID and create or join your shared vault"}
+              </p>
+            </div>
 
-          {/* Soft vignette gradient at bottom of photo */}
-          <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/50 to-transparent pointer-events-none" />
-        </div>
-
-        {/* ================= BOTTOM HALF: Crisp Pure White Curved Sheet ================= */}
-        <div className="relative -mt-8 z-20 flex-1 bg-white rounded-t-[36px] sm:rounded-t-[44px] shadow-2xl px-6 pt-5 pb-3 flex flex-col justify-between overflow-y-auto scrollbar-none">
-          
-          {/* ================= SCREEN 1: LOG IN ================= */}
-          {screenMode === 'login' && (
-            <motion.div
-              key="login"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              className="flex-1 flex flex-col justify-between"
-            >
-              <div>
-                {/* Segmented Tab Switcher [ Log in ] [ Sign up ] */}
-                <div className="w-full p-1 rounded-full bg-stone-100 flex items-center border border-stone-200/60 mb-2.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setScreenMode('login')}
-                    className="flex-1 py-1.5 rounded-full text-xs font-bold bg-white text-stone-900 shadow-xs transition-all text-center"
-                  >
-                    Log in
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sound.playSoftClick();
-                      setScreenMode('signup');
-                    }}
-                    className="flex-1 py-1.5 rounded-full text-xs font-medium text-stone-500 hover:text-stone-900 transition-all text-center"
-                  >
-                    Sign up
-                  </button>
-                </div>
-
-                {/* Header Texts */}
-                <div className="mb-2">
-                  <h2 className="text-xl sm:text-2xl font-black text-stone-900 tracking-tight flex items-center gap-1.5">
-                    <span>Welcome Back!</span>
-                    <span>👋</span>
-                  </h2>
-                  <p className="text-xs text-stone-500 font-sans mt-0.5">
-                    Sign in with your unique Login ID or handle
-                  </p>
-                </div>
-
+            {/* ================= SCREEN 1: SIGN IN ================= */}
+            {screenMode === 'login' && (
+              <motion.div
+                key="login-content"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-4"
+              >
                 {/* Quick Account Chips */}
-                <div className="grid grid-cols-2 gap-1.5 mb-2.5">
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => handleSelectRole('partner1')}
-                    className={`py-1.5 px-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all border ${
+                    className={`p-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all border ${
                       selectedRole === 'partner1'
-                        ? 'bg-pink-50 border-[#FF4B72] text-[#FF4B72] shadow-xs'
+                        ? 'bg-purple-50 border-[#6C5DD3] text-[#6C5DD3] shadow-xs'
                         : 'bg-stone-50 border-stone-200 text-stone-600 hover:bg-stone-100'
                     }`}
                   >
-                    <img src={partner1.avatar} alt="P1" className="w-4 h-4 rounded-full object-cover" />
-                    <span className="truncate">@{partner1.name.toLowerCase()}</span>
+                    <img src={partner1.avatar} alt="P1" className="w-5 h-5 rounded-full object-cover" />
+                    <span>@{partner1.name.toLowerCase()}</span>
                     <span className="text-[10px] text-stone-400 font-mono">(1404)</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handleSelectRole('partner2')}
-                    className={`py-1.5 px-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all border ${
+                    className={`p-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all border ${
                       selectedRole === 'partner2'
-                        ? 'bg-purple-50 border-[#A855F7] text-[#9333EA] shadow-xs'
+                        ? 'bg-purple-50 border-[#6C5DD3] text-[#6C5DD3] shadow-xs'
                         : 'bg-stone-50 border-stone-200 text-stone-600 hover:bg-stone-100'
                     }`}
                   >
-                    <img src={partner2.avatar} alt="P2" className="w-4 h-4 rounded-full object-cover" />
-                    <span className="truncate">@{partner2.name.toLowerCase()}</span>
+                    <img src={partner2.avatar} alt="P2" className="w-5 h-5 rounded-full object-cover" />
+                    <span>@{partner2.name.toLowerCase()}</span>
                     <span className="text-[10px] text-stone-400 font-mono">(2512)</span>
                   </button>
                 </div>
 
-                {/* ====== DYNAMIC VAULT NAME PREVIEW CARD (User Request!) ====== */}
-                {detectedVault ? (
+                {/* Dynamic Linked Vault Detection Card */}
+                {detectedVault && (
                   <motion.div
-                    initial={{ opacity: 0, scale: 0.96 }}
+                    initial={{ opacity: 0, scale: 0.98 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    className="p-2.5 rounded-2xl bg-gradient-to-r from-pink-50 via-purple-50 to-pink-50 border border-pink-300/80 mb-2.5 flex items-center justify-between shadow-xs"
+                    className="p-3 rounded-2xl bg-gradient-to-r from-purple-50 via-indigo-50 to-purple-50 border border-[#6C5DD3]/30 flex items-center justify-between shadow-xs"
                   >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="w-7 h-7 rounded-xl bg-gradient-to-tr from-[#FF5E8E] to-[#FF4B72] flex items-center justify-center text-white shrink-0 shadow-xs">
-                        <Lock className="w-3.5 h-3.5" />
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-xl bg-[#6C5DD3] flex items-center justify-center text-white shrink-0 shadow-xs">
+                        <Lock className="w-4 h-4" />
                       </div>
                       <div className="min-w-0">
-                        <span className="text-[9px] font-mono text-[#FF4B72] font-bold uppercase tracking-wider block">
+                        <span className="text-[10px] font-mono text-[#6C5DD3] font-bold uppercase tracking-wider block">
                           🔒 Linked Vault Detected
                         </span>
                         <span className="text-xs font-bold text-stone-900 truncate block">
@@ -536,151 +494,113 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                       Code: {detectedVault.inviteCode}
                     </span>
                   </motion.div>
-                ) : (
-                  <div className="p-2 rounded-xl bg-stone-50 border border-stone-200 text-[11px] text-stone-500 mb-2.5 flex items-center justify-between">
-                    <span className="flex items-center gap-1 font-mono text-[10px]">
-                      <Sparkles className="w-3 h-3 text-[#FF4B72]" />
-                      <span>Enter Login ID to reveal your vault</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handleCopyInviteLink}
-                      className="text-[10px] text-[#FF4B72] font-bold hover:underline flex items-center gap-0.5"
-                    >
-                      <Share2 className="w-3 h-3" />
-                      <span>{copiedLink ? 'Copied' : 'Invite'}</span>
-                    </button>
-                  </div>
                 )}
 
-                {/* Form Inputs */}
-                <form onSubmit={handleSignIn} className="space-y-2">
-                  {/* Unique Login ID Input */}
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-stone-400">
-                      <AtSign className="w-4 h-4 text-[#FF4B72]" />
+                {/* Form Inputs matching screenshot */}
+                <form onSubmit={handleSignIn} className="space-y-3.5">
+                  {/* Email / Login ID Field */}
+                  <div className="space-y-1">
+                    <div className="relative">
+                      <input
+                        type="text"
+                        required
+                        placeholder="stanley@gmail.com or unique Login ID"
+                        value={loginIdentifier}
+                        onChange={(e) => {
+                          setLoginIdentifier(e.target.value);
+                          setLoginError('');
+                        }}
+                        className="w-full px-4 py-3 sm:py-3.5 rounded-xl bg-white border border-stone-200 text-stone-900 placeholder-stone-400 text-xs sm:text-sm font-medium focus:outline-none focus:border-[#6C5DD3] focus:ring-2 focus:ring-[#6C5DD3]/15 transition-all shadow-xs"
+                      />
                     </div>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Enter unique Login ID or email"
-                      value={loginIdentifier}
-                      onChange={(e) => {
-                        setLoginIdentifier(e.target.value);
-                        setLoginError('');
-                      }}
-                      className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white border border-stone-200 text-stone-900 placeholder-stone-400 text-xs focus:outline-none focus:border-[#FF4B72] transition-all shadow-2xs font-medium"
-                    />
                   </div>
 
-                  {/* Password / 4-Digit Security PIN Input */}
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-stone-400">
-                      <Lock className="w-4 h-4" />
+                  {/* Password / 4-Digit Security PIN */}
+                  <div className="space-y-1">
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        required
+                        maxLength={4}
+                        placeholder="••••••••••••"
+                        value={loginPassword}
+                        onChange={(e) => {
+                          setLoginPassword(e.target.value.replace(/\D/g, ''));
+                          setLoginError('');
+                        }}
+                        className="w-full px-4 pr-11 py-3 sm:py-3.5 rounded-xl bg-white border border-stone-200 text-stone-900 placeholder-stone-400 font-mono text-sm tracking-widest focus:outline-none focus:border-[#6C5DD3] focus:ring-2 focus:ring-[#6C5DD3]/15 transition-all shadow-xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-stone-400 hover:text-stone-700"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
                     </div>
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      required
-                      maxLength={4}
-                      placeholder="Enter 4-digit security PIN"
-                      value={loginPassword}
-                      onChange={(e) => {
-                        setLoginPassword(e.target.value.replace(/\D/g, ''));
-                        setLoginError('');
-                      }}
-                      className="w-full pl-10 pr-10 py-2.5 rounded-2xl bg-white border border-stone-200 text-stone-900 placeholder-stone-400 font-mono text-xs focus:outline-none focus:border-[#FF4B72] transition-all shadow-2xs"
-                    />
+                  </div>
+
+                  {/* Row: Remember me + Forgot Password */}
+                  <div className="flex items-center justify-between text-xs text-stone-600 pt-0.5">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={rememberMe}
+                        onChange={(e) => setRememberMe(e.target.checked)}
+                        className="w-4 h-4 rounded border-stone-300 text-[#6C5DD3] focus:ring-[#6C5DD3] accent-[#6C5DD3]"
+                      />
+                      <span className="font-medium text-stone-700">Remember me</span>
+                    </label>
+
                     <button
                       type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-stone-400 hover:text-stone-700"
+                      onClick={() => alert(`Default Demo PINs: ${partner1.name}: 1404, ${partner2.name}: 2512, or test 1234`)}
+                      className="text-stone-500 hover:text-[#6C5DD3] font-medium transition-colors"
                     >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      Forgot Password?
                     </button>
                   </div>
 
                   {/* Error Banner */}
                   {loginError && (
-                    <p className="text-[11px] text-rose-600 font-sans text-center font-medium">
+                    <p className="text-xs text-rose-600 font-sans text-center font-medium">
                       {loginError}
                     </p>
                   )}
 
-                  {/* Sign In Button */}
+                  {/* Primary Button: Solid Purple matching reference image */}
                   <button
                     type="submit"
-                    className="w-full py-3 rounded-full bg-gradient-to-r from-[#FF5E8E] to-[#FF4B72] hover:opacity-95 text-white font-bold text-xs uppercase tracking-wider shadow-md shadow-[#FF4B72]/25 transition-all active:scale-[0.99] mt-1"
+                    className="w-full py-3.5 sm:py-4 rounded-xl bg-[#6C5DD3] hover:bg-[#5C4DCE] active:scale-[0.99] text-white font-bold text-sm tracking-wide shadow-lg shadow-[#6C5DD3]/25 transition-all mt-2"
                   >
-                    Sign In to Vault
+                    Sign In
+                  </button>
+
+                  {/* Apple Continue Button */}
+                  <button
+                    type="button"
+                    onClick={handleBiometricAuth}
+                    className="w-full py-3 rounded-xl bg-white hover:bg-stone-50 border border-stone-200 text-stone-800 font-semibold text-xs flex items-center justify-center gap-2 shadow-xs transition-all"
+                  >
+                    <svg className="w-4 h-4 fill-current" viewBox="0 0 170 170">
+                      <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.69-3.08-7.7-7.91-12.03-14.49-6.03-9.14-10.82-20.08-14.37-32.8-3.55-12.72-5.32-24.52-5.32-35.4 0-14.6 3.69-26.65 11.08-36.14 7.39-9.49 16.5-14.36 27.34-14.61 5.35 0 11.26 1.41 17.73 4.23 6.47 2.82 10.59 4.31 12.35 4.47 1.45 0 5.86-1.61 13.23-4.83 7.37-3.22 13.54-4.53 18.52-3.92 13.73 1.09 24.32 6.51 31.78 16.27-12.28 7.4-18.3 17.43-18.06 30.1.24 9.9 4.08 18.15 11.51 24.76 7.43 6.61 16.32 10.37 26.67 11.27-2.3 7.08-5.29 14.54-8.97 22.37zM119.22 31.84c0-7.2 2.66-14.07 7.99-20.61 5.33-6.54 11.97-10.65 19.92-12.33.24 1.46.36 2.79.36 3.99 0 7.23-2.85 14.12-8.55 20.67-5.7 6.55-12.44 10.45-20.22 11.7-.24-1.34-.36-2.48-.36-3.42z" />
+                    </svg>
+                    <span>Continue with Face ID / Apple Passkey</span>
                   </button>
                 </form>
+              </motion.div>
+            )}
 
-                {/* OR Divider */}
-                <div className="relative my-2 text-center">
-                  <span className="text-[10px] text-stone-400 font-sans uppercase font-bold tracking-wider">
-                    OR
-                  </span>
-                </div>
-
-                {/* Apple Biometric Passkey Button */}
-                <button
-                  type="button"
-                  onClick={handleBiometricAuth}
-                  className="w-full py-2.5 rounded-full bg-white hover:bg-stone-50 border border-stone-300 text-stone-900 font-bold text-xs flex items-center justify-center gap-2 shadow-2xs transition-all"
-                >
-                  <svg className="w-4 h-4 fill-current" viewBox="0 0 170 170">
-                    <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.69-3.08-7.7-7.91-12.03-14.49-6.03-9.14-10.82-20.08-14.37-32.8-3.55-12.72-5.32-24.52-5.32-35.4 0-14.6 3.69-26.65 11.08-36.14 7.39-9.49 16.5-14.36 27.34-14.61 5.35 0 11.26 1.41 17.73 4.23 6.47 2.82 10.59 4.31 12.35 4.47 1.45 0 5.86-1.61 13.23-4.83 7.37-3.22 13.54-4.53 18.52-3.92 13.73 1.09 24.32 6.51 31.78 16.27-12.28 7.4-18.3 17.43-18.06 30.1.24 9.9 4.08 18.15 11.51 24.76 7.43 6.61 16.32 10.37 26.67 11.27-2.3 7.08-5.29 14.54-8.97 22.37zM119.22 31.84c0-7.2 2.66-14.07 7.99-20.61 5.33-6.54 11.97-10.65 19.92-12.33.24 1.46.36 2.79.36 3.99 0 7.23-2.85 14.12-8.55 20.67-5.7 6.55-12.44 10.45-20.22 11.7-.24-1.34-.36-2.48-.36-3.42z" />
-                  </svg>
-                  <span>Continue with apple</span>
-                </button>
-              </div>
-            </motion.div>
-          )}
-
-          {/* ================= SCREEN 2: SIGN UP WITH CREATE VAULT ================= */}
-          {screenMode === 'signup' && (
-            <motion.div
-              key="signup"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              className="flex-1 flex flex-col justify-between"
-            >
-              <div>
-                {/* Segmented Tab Switcher [ Log in ] [ Sign up ] */}
-                <div className="w-full p-1 rounded-full bg-stone-100 flex items-center border border-stone-200/60 mb-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sound.playSoftClick();
-                      setScreenMode('login');
-                    }}
-                    className="flex-1 py-1.5 rounded-full text-xs font-medium text-stone-500 hover:text-stone-900 transition-all text-center"
-                  >
-                    Log in
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setScreenMode('signup')}
-                    className="flex-1 py-1.5 rounded-full text-xs font-bold bg-white text-stone-900 shadow-xs transition-all text-center"
-                  >
-                    Sign up
-                  </button>
-                </div>
-
-                {/* Title */}
-                <div className="mb-2">
-                  <h2 className="text-lg sm:text-xl font-black text-stone-900 tracking-tight flex items-center gap-1.5">
-                    <span>Create Account & Vault</span>
-                    <span>💍</span>
-                  </h2>
-                  <p className="text-[11px] text-stone-500 font-sans">
-                    Register a unique Login ID and set up your shared locker
-                  </p>
-                </div>
-
-                {/* Profile Photo Upload */}
-                <div className="flex items-center gap-2.5 p-2 rounded-2xl bg-stone-50 border border-stone-200/70 mb-2">
+            {/* ================= SCREEN 2: SIGN UP & CREATE VAULT ================= */}
+            {screenMode === 'signup' && (
+              <motion.div
+                key="signup-content"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-3.5"
+              >
+                {/* Profile Photo Set Option */}
+                <div className="flex items-center gap-3 p-2.5 rounded-2xl bg-stone-50 border border-stone-200">
                   <div 
                     className="relative group cursor-pointer shrink-0" 
                     onClick={() => fileInputRef.current?.click()}
@@ -689,9 +609,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     <img
                       src={profilePhoto}
                       alt="Profile Avatar"
-                      className="w-10 h-10 rounded-full object-cover ring-2 ring-[#FF4B72]"
+                      className="w-11 h-11 rounded-full object-cover ring-2 ring-[#6C5DD3]"
                     />
-                    <div className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-[#FF4B72] border border-white flex items-center justify-center text-white">
+                    <div className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-[#6C5DD3] border border-white flex items-center justify-center text-white">
                       <Camera className="w-2 h-2" />
                     </div>
                   </div>
@@ -705,17 +625,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   />
 
                   <div className="flex-1 min-w-0">
-                    <span className="text-[10px] font-bold text-stone-700 block truncate">
+                    <span className="text-[11px] font-bold text-stone-800 block truncate">
                       Profile Avatar
                     </span>
-                    <div className="flex items-center gap-1 mt-0.5">
+                    <div className="flex items-center gap-1.5 mt-0.5">
                       {PRESET_AVATARS.slice(0, 4).map((av, i) => (
                         <button
                           key={i}
                           type="button"
                           onClick={() => setProfilePhoto(av)}
-                          className={`w-4.5 h-4.5 rounded-full overflow-hidden border ${
-                            profilePhoto === av ? 'border-[#FF4B72] ring-1 ring-[#FF4B72]' : 'border-stone-300'
+                          className={`w-5 h-5 rounded-full overflow-hidden border ${
+                            profilePhoto === av ? 'border-[#6C5DD3] ring-1 ring-[#6C5DD3]' : 'border-stone-300'
                           }`}
                         >
                           <img src={av} alt="avatar" className="w-full h-full object-cover" />
@@ -724,7 +644,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        className="text-[9px] text-[#FF4B72] font-semibold underline ml-1"
+                        className="text-[10px] text-[#6C5DD3] font-semibold underline ml-1"
                       >
                         Upload
                       </button>
@@ -732,72 +652,63 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   </div>
                 </div>
 
-                {/* Sign Up Form Inputs */}
-                <form onSubmit={handleSignUp} className="space-y-1.5">
-                  {/* Name */}
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-stone-400">
-                      <User className="w-3.5 h-3.5" />
-                    </div>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Your Full Name"
-                      value={signUpName}
-                      onChange={(e) => setSignUpName(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 rounded-xl bg-white border border-stone-200 text-stone-900 placeholder-stone-400 text-xs focus:outline-none focus:border-[#FF4B72]"
-                    />
-                  </div>
+                <form onSubmit={handleSignUp} className="space-y-2.5">
+                  {/* Name Input */}
+                  <input
+                    type="text"
+                    required
+                    placeholder="Your Full Name"
+                    value={signUpName}
+                    onChange={(e) => setSignUpName(e.target.value)}
+                    className="w-full px-4 py-2.5 sm:py-3 rounded-xl bg-white border border-stone-200 text-stone-900 placeholder-stone-400 text-xs sm:text-sm focus:outline-none focus:border-[#6C5DD3] shadow-xs"
+                  />
 
-                  {/* Unique Login ID with Live Availability Checker */}
+                  {/* Unique Login ID with Live Availability Indicator */}
                   <div>
                     <div className="relative">
-                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-stone-400">
-                        <AtSign className="w-3.5 h-3.5 text-[#FF4B72]" />
-                      </div>
                       <input
                         type="text"
                         required
-                        placeholder="Choose Unique Login ID (e.g. rohan_01)"
+                        placeholder="Unique Login ID (e.g. rohan_01)"
                         value={signUpLoginId}
                         onChange={(e) => {
                           setSignUpLoginId(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''));
                           setSignUpError('');
                         }}
-                        className={`w-full pl-9 pr-8 py-2 rounded-xl bg-white border text-xs focus:outline-none transition-all ${
+                        className={`w-full px-4 pr-10 py-2.5 sm:py-3 rounded-xl bg-white border text-xs sm:text-sm focus:outline-none transition-all shadow-xs ${
                           cleanSignUpLoginId.length >= 3
                             ? isLoginIdAvailable
                               ? 'border-emerald-500 focus:border-emerald-500'
                               : 'border-rose-500 focus:border-rose-500'
-                            : 'border-stone-200 focus:border-[#FF4B72]'
+                            : 'border-stone-200 focus:border-[#6C5DD3]'
                         }`}
                       />
-                      <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                      <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center">
                         {cleanSignUpLoginId.length >= 3 && (
                           isLoginIdAvailable ? (
-                            <Check className="w-3.5 h-3.5 text-emerald-500 stroke-[3]" />
+                            <Check className="w-4 h-4 text-emerald-500 stroke-[3]" />
                           ) : (
-                            <AlertCircle className="w-3.5 h-3.5 text-rose-500" />
+                            <AlertCircle className="w-4 h-4 text-rose-500" />
                           )
                         )}
                       </div>
                     </div>
 
-                    {/* Live Uniqueness Feedback */}
-                    <div className="px-1 pt-0.5">
+                    {/* Uniqueness feedback */}
+                    <div className="px-1 pt-1">
                       {cleanSignUpLoginId.length >= 3 ? (
                         isLoginIdAvailable ? (
-                          <span className="text-[10px] text-emerald-600 font-medium">
+                          <span className="text-[11px] text-emerald-600 font-medium">
                             ✓ Unique Login ID @{cleanSignUpLoginId} is available!
                           </span>
                         ) : (
-                          <span className="text-[10px] text-rose-600 font-medium">
+                          <span className="text-[11px] text-rose-600 font-medium">
                             ❌ Login ID @{cleanSignUpLoginId} is already taken!
                           </span>
                         )
                       ) : (
-                        <span className="text-[9px] text-stone-400 font-mono">
-                          Unique ID (letters, numbers, underscore)
+                        <span className="text-[10px] text-stone-400 font-mono">
+                          Unique ID handle (letters, numbers, underscores)
                         </span>
                       )}
                     </div>
@@ -805,9 +716,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
                   {/* 4-digit Security PIN */}
                   <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-stone-400">
-                      <Lock className="w-3.5 h-3.5" />
-                    </div>
                     <input
                       type={showPassword ? 'text' : 'password'}
                       required
@@ -815,38 +723,38 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                       placeholder="4-digit Security PIN"
                       value={signUpPassword}
                       onChange={(e) => setSignUpPassword(e.target.value.replace(/\D/g, ''))}
-                      className="w-full pl-9 pr-9 py-2 rounded-xl bg-white border border-stone-200 text-stone-900 placeholder-stone-400 font-mono text-xs focus:outline-none focus:border-[#FF4B72]"
+                      className="w-full px-4 pr-10 py-2.5 sm:py-3 rounded-xl bg-white border border-stone-200 text-stone-900 placeholder-stone-400 font-mono text-xs sm:text-sm focus:outline-none focus:border-[#6C5DD3] shadow-xs"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-stone-400 hover:text-stone-700"
+                      className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-stone-400 hover:text-stone-700"
                     >
-                      {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
 
-                  {/* ====== CREATE VAULT OPTION SECTION (User Request!) ====== */}
-                  <div className="p-2.5 rounded-2xl bg-gradient-to-tr from-pink-50/90 to-purple-50/90 border border-pink-200 space-y-1.5 mt-1">
-                    <div className="flex items-center justify-between text-[10px] font-bold text-stone-800">
-                      <span className="flex items-center gap-1 text-[#FF4B72]">
-                        <Sparkles className="w-3 h-3" />
+                  {/* ====== CREATE VAULT CONFIGURATION ====== */}
+                  <div className="p-3 rounded-2xl bg-gradient-to-tr from-purple-50/90 to-indigo-50/90 border border-[#6C5DD3]/20 space-y-2">
+                    <div className="flex items-center justify-between text-xs font-bold text-stone-800">
+                      <span className="flex items-center gap-1.5 text-[#6C5DD3]">
+                        <Sparkles className="w-3.5 h-3.5" />
                         <span>Vault Configuration</span>
                       </span>
-                      <span className="text-stone-500 font-mono text-[9px]">2-of-2 SSS</span>
+                      <span className="text-stone-500 font-mono text-[10px]">2-of-2 SSS</span>
                     </div>
 
                     {/* Mode Toggle [ Create New Vault ] vs [ Join Partner ] */}
-                    <div className="grid grid-cols-2 p-0.5 rounded-lg bg-white/80 border border-stone-200">
+                    <div className="grid grid-cols-2 p-0.5 rounded-xl bg-white/90 border border-stone-200">
                       <button
                         type="button"
                         onClick={() => {
                           sound.playSoftClick();
                           setVaultOption('create');
                         }}
-                        className={`py-1 rounded-md text-[10px] font-bold transition-all ${
+                        className={`py-1.5 rounded-lg text-xs font-bold transition-all ${
                           vaultOption === 'create'
-                            ? 'bg-[#FF4B72] text-white shadow-2xs'
+                            ? 'bg-[#6C5DD3] text-white shadow-xs'
                             : 'text-stone-600 hover:text-stone-900'
                         }`}
                       >
@@ -858,9 +766,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                           sound.playSoftClick();
                           setVaultOption('join');
                         }}
-                        className={`py-1 rounded-md text-[10px] font-bold transition-all ${
+                        className={`py-1.5 rounded-lg text-xs font-bold transition-all ${
                           vaultOption === 'join'
-                            ? 'bg-[#FF4B72] text-white shadow-2xs'
+                            ? 'bg-[#6C5DD3] text-white shadow-xs'
                             : 'text-stone-600 hover:text-stone-900'
                         }`}
                       >
@@ -870,52 +778,49 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
                     {vaultOption === 'create' ? (
                       <div className="space-y-1.5 pt-0.5">
-                        {/* Vault Name Input */}
-                        <div>
-                          <input
-                            type="text"
-                            required
-                            placeholder="Vault Name (e.g. Our Sanctuary)"
-                            value={newVaultName}
-                            onChange={(e) => setNewVaultName(e.target.value)}
-                            className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-stone-200 text-stone-900 text-[11px] font-semibold focus:outline-none focus:border-[#FF4B72]"
-                          />
-                          {/* Name suggestions */}
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {VAULT_NAME_SUGGESTIONS.map((sug, idx) => (
-                              <button
-                                key={idx}
-                                type="button"
-                                onClick={() => setNewVaultName(sug)}
-                                className="text-[9px] bg-white/70 hover:bg-white text-stone-600 px-1.5 py-0.5 rounded border border-stone-200/70 truncate"
-                              >
-                                {sug}
-                              </button>
-                            ))}
-                          </div>
+                        <input
+                          type="text"
+                          required
+                          placeholder="Vault Name (e.g. Our Sanctuary)"
+                          value={newVaultName}
+                          onChange={(e) => setNewVaultName(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl bg-white border border-stone-200 text-stone-900 text-xs font-semibold focus:outline-none focus:border-[#6C5DD3]"
+                        />
+
+                        {/* Name suggestions */}
+                        <div className="flex flex-wrap gap-1">
+                          {VAULT_NAME_SUGGESTIONS.map((sug, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => setNewVaultName(sug)}
+                              className="text-[10px] bg-white text-stone-600 px-2 py-0.5 rounded-lg border border-stone-200 hover:border-[#6C5DD3]"
+                            >
+                              {sug}
+                            </button>
+                          ))}
                         </div>
 
-                        {/* 6-Digit Vault Code */}
-                        <div className="flex items-center justify-between bg-white px-2.5 py-1 rounded-lg border border-stone-200 text-[10px]">
+                        {/* 6-Digit Code display */}
+                        <div className="flex items-center justify-between bg-white px-3 py-1.5 rounded-xl border border-stone-200 text-xs">
                           <span className="text-stone-500 font-mono">6-Digit Code:</span>
-                          <div className="flex items-center gap-1.5 font-mono font-bold text-[#FF4B72]">
-                            <span className="tracking-wider">{newVaultCode}</span>
+                          <div className="flex items-center gap-2 font-mono font-bold text-[#6C5DD3]">
+                            <span className="tracking-widest">{newVaultCode}</span>
                             <button
                               type="button"
                               onClick={() => {
                                 sound.playSoftClick();
                                 setNewVaultCode(Math.floor(100000 + Math.random() * 900000).toString());
                               }}
-                              className="text-stone-400 hover:text-stone-700 p-0.5"
+                              className="text-stone-400 hover:text-stone-800 p-0.5"
                               title="Randomize Code"
                             >
-                              <Dices className="w-3 h-3" />
+                              <Dices className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </div>
                       </div>
                     ) : (
-                      /* Join Partner's Existing Vault */
                       <div className="pt-0.5">
                         <input
                           type="text"
@@ -923,106 +828,198 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                           placeholder="Enter Partner's 6-digit Code"
                           value={joinPartnerCode}
                           onChange={(e) => setJoinPartnerCode(e.target.value.replace(/\D/g, ''))}
-                          className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-stone-200 text-stone-900 text-[11px] font-mono font-bold text-center tracking-widest focus:outline-none focus:border-[#FF4B72]"
+                          className="w-full px-3 py-2 rounded-xl bg-white border border-stone-200 text-stone-900 text-xs font-mono font-bold text-center tracking-widest focus:outline-none focus:border-[#6C5DD3]"
                         />
                       </div>
                     )}
                   </div>
 
                   {signUpError && (
-                    <p className="text-[10px] text-rose-600 font-sans text-center font-medium">
+                    <p className="text-xs text-rose-600 font-sans text-center font-medium">
                       {signUpError}
                     </p>
                   )}
 
-                  {/* Sign Up Submit Button */}
                   <button
                     type="submit"
                     disabled={isSubmitting || (cleanSignUpLoginId.length >= 3 && !isLoginIdAvailable)}
-                    className="w-full py-2.5 rounded-full bg-gradient-to-r from-[#FF5E8E] to-[#FF4B72] hover:opacity-95 text-white font-bold text-xs uppercase tracking-wider shadow-md shadow-[#FF4B72]/25 transition-all active:scale-[0.99] disabled:opacity-50"
+                    className="w-full py-3.5 rounded-xl bg-[#6C5DD3] hover:bg-[#5C4DCE] active:scale-[0.99] text-white font-bold text-sm tracking-wide shadow-lg shadow-[#6C5DD3]/25 transition-all disabled:opacity-50 mt-1"
                   >
-                    {isSubmitting ? 'Setting up Vault...' : vaultOption === 'create' ? 'Create Account & Vault' : 'Join Partner’s Vault'}
+                    {isSubmitting ? 'Configuring Vault...' : vaultOption === 'create' ? 'Create Account & Vault' : 'Join Partner’s Vault'}
                   </button>
                 </form>
-              </div>
-            </motion.div>
-          )}
+              </motion.div>
+            )}
+          </div>
 
-          {/* ================= SCREEN 3: INTRO / WELCOME ================= */}
-          {screenMode === 'welcome' && (
-            <motion.div
-              key="welcome"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              className="flex-1 flex flex-col justify-between py-2 text-center"
-            >
-              <div className="flex flex-col items-center">
-                <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-[#FF5E8E] to-[#FF4B72] flex items-center justify-center text-white shadow-md shadow-[#FF4B72]/30 mb-3">
-                  <Zap className="w-7 h-7 fill-white text-white" />
-                </div>
-
-                <h2 className="text-2xl font-black text-stone-900 tracking-tight">
-                  Meet. Match. Lock.
-                </h2>
-                <p className="text-xs text-stone-500 font-sans mt-1 max-w-[240px]">
-                  Zero-knowledge encryption for your most precious shared couple memories.
-                </p>
-              </div>
-
-              <div className="space-y-3 pt-6">
-                <button
-                  type="button"
-                  onClick={() => {
-                    sound.playSoftClick();
-                    setScreenMode('login');
-                  }}
-                  className="w-full py-3.5 rounded-full bg-gradient-to-r from-[#FF5E8E] to-[#FF4B72] text-white font-bold text-xs uppercase tracking-wider shadow-md hover:opacity-95 transition-all"
-                >
-                  Login with Your ID
-                </button>
-
+          {/* Footer Link: Don't have an account? Sign Up */}
+          <div className="pt-6 border-t border-stone-100 flex items-center justify-between text-xs text-stone-500">
+            {screenMode === 'login' ? (
+              <p>
+                Don't have an account?{' '}
                 <button
                   type="button"
                   onClick={() => {
                     sound.playSoftClick();
                     setScreenMode('signup');
                   }}
-                  className="w-full py-3 rounded-full bg-white hover:bg-stone-50 border border-stone-300 text-stone-900 font-bold text-xs flex items-center justify-center gap-2 shadow-2xs transition-all"
+                  className="font-bold text-[#6C5DD3] hover:underline"
                 >
-                  Create New Couple Account
+                  Sign Up
                 </button>
-              </div>
-            </motion.div>
-          )}
-
-          {/* Footer Controls & Reset Demo */}
-          <div className="pt-2 border-t border-stone-100 flex items-center justify-between text-[10px] text-stone-400 font-mono shrink-0">
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setScreenMode('login')}
-                className={`hover:text-stone-700 ${screenMode === 'login' ? 'font-bold text-[#FF4B72]' : ''}`}
-              >
-                Log in
-              </button>
-              <span>•</span>
-              <button
-                type="button"
-                onClick={() => setScreenMode('signup')}
-                className={`hover:text-stone-700 ${screenMode === 'signup' ? 'font-bold text-[#FF4B72]' : ''}`}
-              >
-                Sign up & Vault
-              </button>
-            </div>
+              </p>
+            ) : (
+              <p>
+                Already have an account?{' '}
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.playSoftClick();
+                    setScreenMode('login');
+                  }}
+                  className="font-bold text-[#6C5DD3] hover:underline"
+                >
+                  Sign In
+                </button>
+              </p>
+            )}
 
             <button
               type="button"
-              onClick={handleResetDemo}
-              className="hover:text-stone-700 underline transition-colors"
+              onClick={handleCopyInviteLink}
+              className="text-[#6C5DD3] hover:underline font-semibold flex items-center gap-1 font-mono text-[11px]"
             >
-              Reset Demo
+              <Share2 className="w-3 h-3" />
+              <span>{copiedLink ? 'Link Copied!' : 'Invite Partner'}</span>
             </button>
+          </div>
+
+        </div>
+
+        {/* ================= RIGHT COLUMN: Artwork & Floating Biometric Phone (Exact Match to Reference Screenshot) ================= */}
+        <div className="relative min-h-[360px] lg:min-h-full rounded-2xl lg:rounded-[36px] m-2 lg:m-3 bg-gradient-to-br from-[#745FF2] via-[#654EE8] to-[#5037D8] p-6 lg:p-10 flex items-center justify-center overflow-hidden shadow-inner">
+          
+          {/* Fluffy White SVG Clouds in Background */}
+          {/* Top Left Cloud */}
+          <div className="absolute top-2 left-[-20px] opacity-90 pointer-events-none">
+            <svg width="220" height="110" viewBox="0 0 220 110" fill="none">
+              <path d="M40 90C17.9 90 0 72.1 0 50C0 30.5 13.9 14.2 32.5 10.7C39.4 4.2 48.7 0 59 0C74.6 0 87.7 9.8 92.5 23.5C98.4 21.2 104.9 20 111.7 20C134.4 20 153.2 36.8 155.8 58.7C162.7 54.4 170.8 52 179.5 52C201.9 52 220 70.1 220 92.5C220 94 219.9 95.5 219.7 97H40V90Z" fill="white" />
+            </svg>
+          </div>
+
+          {/* Top Right Cloud */}
+          <div className="absolute top-[-10px] right-[-30px] opacity-80 pointer-events-none">
+            <svg width="240" height="130" viewBox="0 0 240 130" fill="none">
+              <path d="M45 110C20.1 110 0 89.9 0 65C0 42.9 15.9 24.5 37 20.7C44.9 8.2 58.8 0 75 0C93.4 0 109.1 10.6 116.5 26.2C123.7 23.4 131.6 22 139.7 22C167.3 22 190.1 42.5 193.1 69.2C201.2 64.1 210.8 61.2 221 61.2C231.8 61.2 240 69.4 240 80.2V110H45Z" fill="white" />
+            </svg>
+          </div>
+
+          {/* Bottom Fluffy Clouds */}
+          <div className="absolute bottom-[-20px] inset-x-0 flex justify-between opacity-95 pointer-events-none">
+            <svg width="260" height="120" viewBox="0 0 260 120" fill="none">
+              <path d="M30 110C13.4 110 0 96.6 0 80C0 64.9 11.2 52.4 25.8 50.4C30.9 22.3 55.4 1 85 1C107.5 1 126.9 14.1 135.5 33.2C142.3 29.8 150 28 158.1 28C182.4 28 202.8 45.4 207.2 68.7C214.2 64.4 222.4 62 231.2 62C247.1 62 260 74.9 260 90.8V110H30Z" fill="white" />
+            </svg>
+            <svg width="240" height="110" viewBox="0 0 240 110" fill="none" className="hidden sm:block">
+              <path d="M25 100C11.2 100 0 88.8 0 75C0 62.4 9.3 52 21.5 50.3C25.8 26.9 46.2 9 70.8 9C89.5 9 105.7 19.9 112.9 35.8C118.6 32.9 125 31.4 131.8 31.4C152 31.4 169 45.9 172.7 65.3C178.5 61.7 185.3 59.7 192.7 59.7C206 59.7 216.7 70.4 216.7 83.7V100H25Z" fill="white" />
+            </svg>
+          </div>
+
+          {/* Centerpiece Container with Floating Elements */}
+          <div className="relative z-10 flex items-center justify-center">
+            
+            {/* Top-Left Floating Speech Bubble with Checkmark (Exact Match to Screenshot) */}
+            <motion.div
+              animate={{ y: [-6, 6, -6], rotate: [-2, 2, -2] }}
+              transition={{ repeat: Infinity, duration: 4.5, ease: 'easeInOut' }}
+              className="absolute -top-10 -left-6 sm:-top-12 sm:-left-12 z-30 bg-white rounded-full p-3 sm:p-4 shadow-2xl flex items-center justify-center border-4 border-white/60"
+            >
+              <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-gradient-to-tr from-[#6C5DD3] to-[#A855F7] flex items-center justify-center text-white shadow-md">
+                <Check className="w-5 h-5 sm:w-6 sm:h-6 stroke-[3]" />
+              </div>
+            </motion.div>
+
+            {/* Right Floating 3D Padlock (Exact Match to Screenshot) */}
+            <motion.div
+              animate={{ y: [6, -6, 6], rotate: [2, -2, 2] }}
+              transition={{ repeat: Infinity, duration: 5, ease: 'easeInOut' }}
+              className="absolute -bottom-8 -right-6 sm:-bottom-10 sm:-right-10 z-30 flex flex-col items-center"
+            >
+              {/* Shackle */}
+              <div className="w-10 sm:w-12 h-10 sm:h-12 border-4 sm:border-[5px] border-white rounded-t-full mb-[-5px] shadow-sm" />
+              {/* Body */}
+              <div className="w-16 sm:w-20 h-16 sm:h-20 rounded-3xl bg-white shadow-2xl flex items-center justify-center border-4 border-white/60">
+                <div className="flex flex-col items-center">
+                  <div className="w-3.5 sm:w-4 h-3.5 sm:h-4 rounded-full bg-[#6C5DD3]" />
+                  <div className="w-1.5 sm:w-2 h-3.5 sm:h-4 bg-[#6C5DD3] rounded-b-sm" />
+                </div>
+              </div>
+            </motion.div>
+
+            {/* Floating 3D Smartphone (Exact Match to Screenshot) */}
+            <motion.div
+              animate={{ y: [-4, 4, -4] }}
+              transition={{ repeat: Infinity, duration: 6, ease: 'easeInOut' }}
+              className="relative w-[230px] sm:w-[270px] h-[450px] sm:h-[500px] rounded-[44px] bg-[#170520] border-[7px] border-stone-900 shadow-2xl flex flex-col overflow-hidden p-3.5 select-none"
+            >
+              {/* Phone Speaker & Front Camera Hole */}
+              <div className="w-full flex items-center justify-center mb-4 pt-1">
+                <div className="w-3 h-3 rounded-full bg-black border border-white/20" />
+              </div>
+
+              {/* Glowing Phone Screen Content */}
+              <div className="flex-1 rounded-[30px] bg-gradient-to-b from-[#F16298] via-[#BF4CD0] to-[#7B59EC] p-4 flex flex-col items-center justify-between text-center relative overflow-hidden text-white shadow-inner">
+                
+                {/* Status Bar inside phone */}
+                <div className="w-full flex items-center justify-between text-[10px] font-mono opacity-80 pt-1">
+                  <span>9:41</span>
+                  <span>5G 100%</span>
+                </div>
+
+                {/* Center Biometric Scanning Ring with 4 Corners */}
+                <div className="my-auto flex flex-col items-center">
+                  <div className="relative w-28 h-28 flex items-center justify-center mb-3">
+                    {/* 4 bracket scan corners */}
+                    <div className="absolute top-0 left-0 w-5 h-5 border-t-2 border-l-2 border-white rounded-tl-lg" />
+                    <div className="absolute top-0 right-0 w-5 h-5 border-t-2 border-r-2 border-white rounded-tr-lg" />
+                    <div className="absolute bottom-0 left-0 w-5 h-5 border-b-2 border-l-2 border-white rounded-bl-lg" />
+                    <div className="absolute bottom-0 right-0 w-5 h-5 border-b-2 border-r-2 border-white rounded-br-lg" />
+
+                    {/* Fingerprint / Face ID icon */}
+                    <motion.div
+                      animate={{ scale: [1, 1.06, 1], opacity: [0.9, 1, 0.9] }}
+                      transition={{ repeat: Infinity, duration: 2.5 }}
+                      className="w-16 h-16 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center border border-white/40 shadow-lg"
+                    >
+                      <Fingerprint className="w-10 h-10 text-white" />
+                    </motion.div>
+
+                    {/* Animated Scanning Beam */}
+                    <motion.div
+                      animate={{ y: [-40, 40, -40] }}
+                      transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
+                      className="absolute inset-x-2 h-1 bg-gradient-to-r from-transparent via-cyan-300 to-transparent shadow-[0_0_12px_rgba(103,232,249,0.8)]"
+                    />
+                  </div>
+
+                  {/* Holographic Cyan Progress Bar */}
+                  <div className="w-32 h-1.5 rounded-full bg-black/25 overflow-hidden mb-3">
+                    <motion.div
+                      animate={{ x: [-120, 120] }}
+                      transition={{ repeat: Infinity, duration: 2, ease: 'linear' }}
+                      className="w-20 h-full bg-gradient-to-r from-cyan-300 via-white to-pink-300 rounded-full"
+                    />
+                  </div>
+
+                  <p className="text-[11px] font-sans font-medium text-white/95 leading-tight max-w-[150px]">
+                    Please tap your finger or passkey to your phone
+                  </p>
+                </div>
+
+                {/* Bottom Home Indicator on Phone Screen */}
+                <div className="w-20 h-1 rounded-full bg-white/40 mb-1" />
+              </div>
+            </motion.div>
+
           </div>
 
         </div>

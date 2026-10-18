@@ -19,7 +19,23 @@ import { realtimeVault } from './utils/realtimeVault';
 import { ShieldAlert, KeyRound } from 'lucide-react';
 
 export function App() {
-  const [viewMode, setViewMode] = useState<ViewMode>('single');
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth >= 1024 ? 'desktop' : 'single';
+    }
+    return 'single';
+  });
+
+  // Auto-detect phone vs desktop on mount and window resize
+  useEffect(() => {
+    const handleAutoDetect = () => {
+      const isDesktop = window.innerWidth >= 1024;
+      setViewMode(isDesktop ? 'desktop' : 'single');
+    };
+    handleAutoDetect();
+    window.addEventListener('resize', handleAutoDetect);
+    return () => window.removeEventListener('resize', handleAutoDetect);
+  }, []);
   const [activeTab, setActiveTab] = useState<TabType>('lock');
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [unlockState, setUnlockState] = useState<VaultUnlockState>('LOCKED');
