@@ -17,6 +17,7 @@ interface LockScreenProps {
   onUnlockVault: () => void;
   onOpenSecurity: () => void;
   onOpenSettings: () => void;
+  onOpenUserProfile?: () => void;
   currentRole?: 'partner1' | 'partner2';
   onChangeRole?: (role: 'partner1' | 'partner2') => void;
   roomCode?: string;
@@ -28,6 +29,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   onUnlockVault,
   onOpenSecurity,
   onOpenSettings,
+  onOpenUserProfile,
   currentRole = 'partner1',
   onChangeRole = () => {},
   roomCode = 'BOND-8821',
@@ -194,17 +196,36 @@ export const LockScreen: React.FC<LockScreenProps> = ({
           <QrCode className="w-3 h-3 ml-0.5" />
         </button>
 
-        {/* Hardware Face ID / Passkey Setup Button */}
-        <button
-          onClick={() => {
-            sound.playSoftClick();
-            setIsPasskeyModalOpen(true);
-          }}
-          className="w-9 h-9 rounded-full bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-stone-300 hover:text-white transition-colors"
-          title="Hardware Face ID & Passkeys Settings"
-        >
-          <ScanFace className="w-4 h-4 text-neonPink-400" />
-        </button>
+        {/* Identified User Profile Button */}
+        {onOpenUserProfile ? (
+          <button
+            onClick={() => {
+              sound.playSoftClick();
+              onOpenUserProfile();
+            }}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/15 border border-white/10 hover:border-[#FF2E93]/40 transition-all text-xs"
+            title="View Identified Profile & Key Share"
+          >
+            <img
+              src={myPartner.avatar}
+              alt={myPartner.name}
+              className="w-5 h-5 rounded-full object-cover ring-1 ring-[#FF2E93]"
+            />
+            <span className="font-sans font-semibold text-white text-[11px] max-w-[65px] truncate">{myPartner.name}</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-emeraldGlow shrink-0" />
+          </button>
+        ) : (
+          <button
+            onClick={() => {
+              sound.playSoftClick();
+              setIsPasskeyModalOpen(true);
+            }}
+            className="w-9 h-9 rounded-full bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-stone-300 hover:text-white transition-colors"
+            title="Hardware Face ID & Passkeys Settings"
+          >
+            <ScanFace className="w-4 h-4 text-neonPink-400" />
+          </button>
+        )}
       </div>
 
       {/* Hero Visual Area: Nicely Structured (No Collisions!) */}
@@ -350,14 +371,27 @@ export const LockScreen: React.FC<LockScreenProps> = ({
       <div className="text-center px-2 pb-1 z-10 flex flex-col items-center">
         
         {/* Device Identity Badge */}
-        <div className="flex items-center gap-2 mb-3 text-xs text-stone-400">
-          <span>This phone is: <strong className="text-white">{myPartner.name} (Phone {isPartner1 ? '1' : '2'})</strong></span>
+        <div className="flex items-center justify-center gap-2 mb-3 text-xs text-stone-400">
+          <span>Identified: <strong className="text-white">{myPartner.name} (Phone {isPartner1 ? '1' : '2'})</strong></span>
+          {onOpenUserProfile && (
+            <button
+              onClick={() => {
+                sound.playSoftClick();
+                onOpenUserProfile();
+              }}
+              className="text-[#FF4D9D] hover:underline flex items-center gap-0.5 font-semibold text-[11px] bg-white/5 hover:bg-white/10 px-2 py-0.5 rounded-full border border-white/10 transition-colors"
+              title="View profile and assigned key share"
+            >
+              <span>Profile</span>
+            </button>
+          )}
+          <span className="text-stone-600">•</span>
           <button
             onClick={() => {
               sound.playSoftClick();
               onChangeRole(isPartner1 ? 'partner2' : 'partner1');
             }}
-            className="text-[#FF4D9D] hover:underline flex items-center gap-0.5 font-semibold text-[11px]"
+            className="text-stone-400 hover:text-stone-200 flex items-center gap-0.5 text-[11px]"
             title="Switch phone role"
           >
             <ArrowRightLeft className="w-3 h-3" />

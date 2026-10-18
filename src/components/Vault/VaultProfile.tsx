@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { ChevronLeft, Shield, Settings, Check, Lock, Star, Zap, AlertTriangle, ArrowRight, Sparkles } from 'lucide-react';
+import { ChevronLeft, Shield, Settings, Check, Lock, Star, Zap, AlertTriangle, ArrowRight, Sparkles, LogOut, User } from 'lucide-react';
 import { CoupleProfile, SecuritySettings } from '../../types/vault';
 import { sound } from '../../utils/sound';
 
@@ -11,6 +11,9 @@ interface VaultProfileProps {
   onOpenSettings: () => void;
   onBackToFeed: () => void;
   onFreezeVault: () => void;
+  authenticatedUser?: 'partner1' | 'partner2' | null;
+  onOpenUserProfile?: () => void;
+  onLogout?: () => void;
 }
 
 export const VaultProfile: React.FC<VaultProfileProps> = ({
@@ -20,6 +23,9 @@ export const VaultProfile: React.FC<VaultProfileProps> = ({
   onOpenSettings,
   onBackToFeed,
   onFreezeVault,
+  authenticatedUser,
+  onOpenUserProfile,
+  onLogout,
 }) => {
   return (
     <div className="relative min-h-full flex flex-col p-4 sm:p-5 pb-24 ambient-app-canvas text-stone-200">
@@ -73,6 +79,21 @@ export const VaultProfile: React.FC<VaultProfileProps> = ({
         <p className="text-xs text-stone-400 font-mono mt-0.5">
           {coupleProfile.vaultName} • 2-of-2 SSS Active
         </p>
+
+        {/* Identified User Pill */}
+        {authenticatedUser && (
+          <button
+            onClick={() => {
+              sound.playSoftClick();
+              if (onOpenUserProfile) onOpenUserProfile();
+            }}
+            className="mt-2.5 px-3 py-1 rounded-full bg-white/10 hover:bg-white/15 border border-[#FF2E93]/40 flex items-center gap-1.5 text-xs text-stone-200 transition-colors"
+          >
+            <User className="w-3.5 h-3.5 text-[#FF4D9D]" />
+            <span>Active Partner: <strong className="text-white">{authenticatedUser === 'partner1' ? coupleProfile.partner1.name : coupleProfile.partner2.name}</strong></span>
+            <span className="text-[10px] text-[#FF4D9D] ml-0.5 underline">View Profile</span>
+          </button>
+        )}
       </div>
 
       {/* 100% Dual-Key Protected Card matching reference (50% complete card) */}
@@ -236,6 +257,22 @@ export const VaultProfile: React.FC<VaultProfileProps> = ({
           <AlertTriangle className="w-4 h-4" />
           <span>Emergency Freeze Vault</span>
         </button>
+
+        {/* Log Out Button */}
+        {onLogout && (
+          <button
+            onClick={() => {
+              if (window.confirm('Log out and lock vault?')) {
+                sound.playSoftClick();
+                onLogout();
+              }
+            }}
+            className="w-full mt-2 py-3 px-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 text-stone-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer"
+          >
+            <LogOut className="w-4 h-4 text-[#FF4D9D]" />
+            <span>Log Out & Switch Partner</span>
+          </button>
+        )}
       </div>
     </div>
   );

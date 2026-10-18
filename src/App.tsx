@@ -8,6 +8,8 @@ import { VaultLetters } from './components/Vault/VaultLetters';
 import { VaultProfile } from './components/Vault/VaultProfile';
 import { SecurityModal } from './components/Security/SecurityModal';
 import { PartnerSettingsModal } from './components/Security/PartnerSettingsModal';
+import { LoginPage } from './components/Auth/LoginPage';
+import { UserProfileModal } from './components/Security/UserProfileModal';
 import { storage } from './utils/storage';
 import { Memory, CoupleProfile, SecuritySettings } from './types/vault';
 import { sound } from './utils/sound';
@@ -25,6 +27,16 @@ export function App() {
 
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+
+  // User Authentication & Identity State
+  const [authenticatedUser, setAuthenticatedUser] = useState<'partner1' | 'partner2' | null>(() => {
+    try {
+      const saved = localStorage.getItem('bondlock_auth_user');
+      if (saved === 'partner1' || saved === 'partner2') return saved;
+    } catch (e) {}
+    return null;
+  });
+  const [isUserProfileOpen, setIsUserProfileOpen] = useState(false);
 
   // Real-time Room & Cross-Device Pairing State
   const [roomCode, setRoomCode] = useState<string>('BOND-8821');
@@ -147,13 +159,45 @@ export function App() {
     setActiveTab('lock');
   };
 
+  const handleLoginSuccess = (partnerId: 'partner1' | 'partner2') => {
+    setAuthenticatedUser(partnerId);
+    setCurrentRole(partnerId);
+    realtimeVault.setRole(partnerId);
+    try {
+      localStorage.setItem('bondlock_auth_user', partnerId);
+    } catch (e) {}
+  };
+
+  const handleLogout = () => {
+    try {
+      localStorage.removeItem('bondlock_auth_user');
+    } catch (e) {}
+    setAuthenticatedUser(null);
+    setIsUnlocked(false);
+    setActiveTab('lock');
+    setIsUserProfileOpen(false);
+  };
+
   const handleChangeRole = (newRole: 'partner1' | 'partner2') => {
     setCurrentRole(newRole);
+    setAuthenticatedUser(newRole);
+    try {
+      localStorage.setItem('bondlock_auth_user', newRole);
+    } catch (e) {}
     realtimeVault.setRole(newRole);
   };
 
   // Render the current view in Single Device Mode
   const renderCurrentScreen = () => {
+    if (!authenticatedUser) {
+      return (
+        <LoginPage
+          coupleProfile={coupleProfile}
+          onLoginSuccess={handleLoginSuccess}
+        />
+      );
+    }
+
     if (isFrozen) {
       return (
         <div className="min-h-full flex flex-col items-center justify-center p-6 text-center select-none ambient-app-canvas text-stone-200">
@@ -191,6 +235,7 @@ export function App() {
           onUnlockVault={handleUnlockVault}
           onOpenSecurity={() => setIsSecurityModalOpen(true)}
           onOpenSettings={() => setIsSettingsModalOpen(true)}
+          onOpenUserProfile={() => setIsUserProfileOpen(true)}
           currentRole={currentRole}
           onChangeRole={handleChangeRole}
           roomCode={roomCode}
@@ -239,6 +284,9 @@ export function App() {
             onOpenSettings={() => setIsSettingsModalOpen(true)}
             onBackToFeed={() => setActiveTab('home')}
             onFreezeVault={handleFreezeVault}
+            authenticatedUser={authenticatedUser}
+            onOpenUserProfile={() => setIsUserProfileOpen(true)}
+            onLogout={handleLogout}
           />
         );
       case 'lock':
@@ -249,6 +297,7 @@ export function App() {
             onUnlockVault={handleUnlockVault}
             onOpenSecurity={() => setIsSecurityModalOpen(true)}
             onOpenSettings={() => setIsSettingsModalOpen(true)}
+            onOpenUserProfile={() => setIsUserProfileOpen(true)}
             currentRole={currentRole}
             onChangeRole={handleChangeRole}
             roomCode={roomCode}
@@ -280,6 +329,7 @@ export function App() {
                 onUnlockVault={handleUnlockVault}
                 onOpenSecurity={() => setIsSecurityModalOpen(true)}
                 onOpenSettings={() => setIsSettingsModalOpen(true)}
+                onOpenUserProfile={() => setIsUserProfileOpen(true)}
                 currentRole={currentRole}
                 onChangeRole={handleChangeRole}
                 roomCode={roomCode}
@@ -345,6 +395,9 @@ export function App() {
                 onOpenSettings={() => setIsSettingsModalOpen(true)}
                 onBackToFeed={() => setActiveTab('home')}
                 onFreezeVault={handleFreezeVault}
+                authenticatedUser={authenticatedUser || 'partner1'}
+                onOpenUserProfile={() => setIsUserProfileOpen(true)}
+                onLogout={handleLogout}
               />
             </div>
             <BottomNav
@@ -407,6 +460,17 @@ export function App() {
         securitySettings={securitySettings}
         onSaveSecuritySettings={handleSaveSecuritySettings}
       />
+
+      {/* Identified Partner Profile Modal */}
+      {authenticatedUser && (
+        <UserProfileModal
+          isOpen={isUserProfileOpen}
+          onClose={() => setIsUserProfileOpen(false)}
+          partner={authenticatedUser === 'partner2' ? coupleProfile.partner2 : coupleProfile.partner1}
+          coupleProfile={coupleProfile}
+          onLogout={handleLogout}
+        />
+      )}
     </DeviceFrame>
   );
 }
