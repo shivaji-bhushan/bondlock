@@ -11,13 +11,13 @@ import {
   Mail,
   Eye,
   EyeOff,
-  Fingerprint, 
+  ChevronRight,
   Shield, 
   AlertCircle,
   ArrowRight,
-  Sprout,
-  Send,
-  RefreshCw
+  ShieldCheck,
+  RefreshCw,
+  Check
 } from 'lucide-react';
 import { CoupleProfile } from '../../types/vault';
 import { verifyPasskey, isPlatformAuthenticatorAvailable } from '../../utils/webAuthn';
@@ -31,159 +31,84 @@ interface LoginPageProps {
   onUpdateCoupleProfile?: (profile: CoupleProfile) => void;
 }
 
-const CAROUSEL_SLIDES = [
-  {
-    image: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=1200&q=85',
-    title: 'Stay focused.',
-    subtitle: 'Grow every day.',
-    theme: 'Two souls. One private haven.',
-  },
-  {
-    image: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=1200&q=85',
-    title: 'Zero-Knowledge.',
-    subtitle: 'Protected in hardware.',
-    theme: 'Shamir 2-of-2 Secret Sharing.',
-  },
-  {
-    image: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=1200&q=85',
-    title: 'Pure Connection.',
-    subtitle: 'Forever encrypted.',
-    theme: 'Unlocked only when both are present.',
-  },
-];
-
 export const LoginPage: React.FC<LoginPageProps> = ({
   coupleProfile,
   onLoginSuccess,
   onUpdateCoupleProfile,
 }) => {
-  const [isSignUp, setIsSignUp] = useState(false);
-  const [activeSlide, setActiveSlide] = useState(0);
+  const [authTab, setAuthTab] = useState<'signin' | 'signup'>('signin');
 
-  // Form State
-  const [emailOrUsername, setEmailOrUsername] = useState('aarav@bondlock.vault');
-  const [passwordOrPin, setPasswordOrPin] = useState('1404');
+  // Sign In Form State
+  const [signInUser, setSignInUser] = useState('Aarav');
+  const [signInPin, setSignInPin] = useState('1404');
   const [showPassword, setShowPassword] = useState(false);
+  const [signInError, setSignInError] = useState('');
 
-  // Sign Up Additional Fields
-  const [partnerName, setPartnerName] = useState('Ananya');
-  const [partnerPin, setPartnerPin] = useState('2512');
-  const [vaultName, setVaultName] = useState('Our Secret Sanctuary');
-
-  const [errorMessage, setErrorMessage] = useState('');
+  // Sign Up Form State
+  const [signUpData, setSignUpData] = useState({
+    yourName: '',
+    yourPin: '',
+    partnerName: '',
+    partnerPin: '',
+    vaultName: 'Our Secret Haven',
+  });
+  const [signUpError, setSignUpError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const partner1 = coupleProfile.partner1;
   const partner2 = coupleProfile.partner2;
 
-  // Change carousel slide
-  const handleSelectSlide = (idx: number) => {
+  // 1-Tap Partner Selection
+  const handleSelectPartner = (role: 'partner1' | 'partner2') => {
     sound.playSoftClick();
-    setActiveSlide(idx);
-  };
-
-  // Quick Select partner helper
-  const handleQuickSelect = (partnerId: 'partner1' | 'partner2') => {
-    sound.playSoftClick();
-    if (partnerId === 'partner1') {
-      setEmailOrUsername(partner1.name.toLowerCase() + '@bondlock.vault');
-      setPasswordOrPin(partner1.pin || '1404');
+    if (role === 'partner1') {
+      setSignInUser(partner1.name);
+      setSignInPin(partner1.pin || '1404');
     } else {
-      setEmailOrUsername(partner2.name.toLowerCase() + '@bondlock.vault');
-      setPasswordOrPin(partner2.pin || '2512');
+      setSignInUser(partner2.name);
+      setSignInPin(partner2.pin || '2512');
     }
-    setErrorMessage('');
+    setSignInError('');
   };
 
-  // Submit Handler (Works for both Sign In and Sign Up)
-  const handleSubmit = async (e: React.FormEvent) => {
+  // 1-Tap Instant Login
+  const handleInstantLogin = (role: 'partner1' | 'partner2') => {
+    sound.playPartnerApproved();
+    try {
+      confetti({ particleCount: 60, spread: 60, origin: { y: 0.6 } });
+    } catch (e) {}
+    onLoginSuccess(role);
+  };
+
+  // Sign In Submission
+  const handleSignIn = (e: React.FormEvent) => {
     e.preventDefault();
     sound.playSoftClick();
-    setErrorMessage('');
+    setSignInError('');
 
-    const query = emailOrUsername.trim().toLowerCase();
-    const pin = passwordOrPin.trim();
+    const query = signInUser.trim().toLowerCase();
+    const pin = signInPin.trim();
 
     if (!query) {
-      setErrorMessage('Please enter your email address or username.');
+      setSignInError('Please enter your username or email.');
       sound.playPanicLock();
       return;
     }
 
     if (!pin) {
-      setErrorMessage('Please enter your security PIN or password.');
+      setSignInError('Please enter your 4-digit security PIN.');
       sound.playPanicLock();
       return;
     }
 
-    if (isSignUp) {
-      // SIGN UP FLOW
-      setIsSubmitting(true);
-      await new Promise((r) => setTimeout(r, 600));
-
-      const yourName = query.includes('@') ? query.split('@')[0] : query;
-      const capYourName = yourName.charAt(0).toUpperCase() + yourName.slice(1);
-      const capPartnerName = partnerName.trim() || 'Partner';
-
-      const share1 = 'SHARE-0x' + Math.random().toString(16).substring(2, 8).toUpperCase();
-      const share2 = 'SHARE-0x' + Math.random().toString(16).substring(2, 8).toUpperCase();
-
-      const newProfile: CoupleProfile = {
-        partner1: {
-          id: 'partner1',
-          name: capYourName,
-          avatar: CAROUSEL_SLIDES[0].image,
-          role: `${capYourName} • Key Share 1`,
-          biometricType: 'Face ID',
-          deviceInfo: 'Enclave Secured Phone',
-          keyShareId: share1,
-          pin: pin,
-        },
-        partner2: {
-          id: 'partner2',
-          name: capPartnerName,
-          avatar: CAROUSEL_SLIDES[1].image,
-          role: `${capPartnerName} • Key Share 2`,
-          biometricType: 'Touch ID',
-          deviceInfo: 'Partner Device',
-          keyShareId: share2,
-          pin: partnerPin || '2512',
-        },
-        anniversaryDate: new Date().toISOString().split('T')[0],
-        vaultName: vaultName.trim() || `${capYourName} & ${capPartnerName}’s Vault`,
-      };
-
-      // Save to storage
-      storage.saveAccount({
-        email: query,
-        username: yourName,
-        pin: pin,
-        role: 'partner1',
-        profile: newProfile,
-      });
-
-      if (onUpdateCoupleProfile) {
-        onUpdateCoupleProfile(newProfile);
-      }
-
-      setIsSubmitting(false);
-      sound.playVaultUnlocked();
-      try {
-        confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
-      } catch (e) {}
-
-      onLoginSuccess('partner1');
-      return;
-    }
-
-    // SIGN IN FLOW
+    // Check saved accounts
     const accounts = storage.getAccounts();
     const matchedAccount = accounts.find(
-      (acc) =>
-        acc.username.toLowerCase() === query ||
-        acc.email.toLowerCase() === query ||
-        acc.profile.partner1.name.toLowerCase() === query ||
-        acc.profile.partner2.name.toLowerCase() === query
+      (a) =>
+        a.username.toLowerCase() === query ||
+        a.email.toLowerCase() === query ||
+        a.profile.partner1.name.toLowerCase() === query ||
+        a.profile.partner2.name.toLowerCase() === query
     );
 
     const isP1 =
@@ -211,34 +136,122 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       expectedPin = matchedAccount.pin;
       targetRole = matchedAccount.role;
     } else {
+      // Default to partner1
       expectedPin = partner1.pin || '1404';
       targetRole = 'partner1';
     }
 
-    if (pin === expectedPin || pin === '1234') {
+    // Accept expected PIN or demo PIN 1234 or universal match
+    if (pin === expectedPin || pin === '1234' || pin === '1404' || pin === '2512') {
       if (matchedAccount && onUpdateCoupleProfile) {
         onUpdateCoupleProfile(matchedAccount.profile);
       }
 
       sound.playPartnerApproved();
       try {
-        confetti({ particleCount: 60, spread: 60, origin: { y: 0.6 } });
+        confetti({ particleCount: 70, spread: 70, origin: { y: 0.6 } });
       } catch (e) {}
 
       setTimeout(() => {
         onLoginSuccess(targetRole);
-      }, 300);
+      }, 250);
     } else {
       sound.playPanicLock();
-      setErrorMessage(`Incorrect PIN for "${emailOrUsername}". Default: Aarav is 1404, Ananya is 2512 (or 1234).`);
+      setSignInError(`Incorrect PIN. (Default: Aarav is 1404, Ananya is 2512, or demo 1234)`);
     }
   };
 
-  // Hardware Biometric / Apple Login
-  const handleAppleOrBiometric = async () => {
+  // Sign Up Submission
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    sound.playSoftClick();
+    setSignUpError('');
+
+    const p1Name = signUpData.yourName.trim();
+    const p1Pin = signUpData.yourPin.trim();
+    const p2Name = signUpData.partnerName.trim();
+    const p2Pin = signUpData.partnerPin.trim();
+
+    if (!p1Name || !p2Name) {
+      setSignUpError('Please enter both your name and your partner’s name.');
+      sound.playPanicLock();
+      return;
+    }
+
+    if (p1Pin.length !== 4 || p2Pin.length !== 4) {
+      setSignUpError('Both security PINs must be exactly 4 digits.');
+      sound.playPanicLock();
+      return;
+    }
+
+    setIsSubmitting(true);
+    await new Promise((r) => setTimeout(r, 400));
+
+    const share1 = 'SHARE-0x' + Math.random().toString(16).substring(2, 8).toUpperCase();
+    const share2 = 'SHARE-0x' + Math.random().toString(16).substring(2, 8).toUpperCase();
+
+    const newProfile: CoupleProfile = {
+      partner1: {
+        id: 'partner1',
+        name: p1Name,
+        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
+        role: `${p1Name} • Key Share 1`,
+        biometricType: 'Face ID',
+        deviceInfo: 'Enclave Secured Phone',
+        keyShareId: share1,
+        pin: p1Pin,
+      },
+      partner2: {
+        id: 'partner2',
+        name: p2Name,
+        avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=400&q=80',
+        role: `${p2Name} • Key Share 2`,
+        biometricType: 'Touch ID',
+        deviceInfo: 'Partner Paired Device',
+        keyShareId: share2,
+        pin: p2Pin,
+      },
+      anniversaryDate: new Date().toISOString().split('T')[0],
+      vaultName: signUpData.vaultName.trim() || `${p1Name} & ${p2Name}’s Vault`,
+    };
+
+    // Save to storage
+    storage.saveCoupleProfile(newProfile);
+    storage.saveAccount({
+      email: `${p1Name.toLowerCase()}@bondlock.vault`,
+      username: p1Name.toLowerCase(),
+      pin: p1Pin,
+      role: 'partner1',
+      profile: newProfile,
+    });
+    storage.saveAccount({
+      email: `${p2Name.toLowerCase()}@bondlock.vault`,
+      username: p2Name.toLowerCase(),
+      pin: p2Pin,
+      role: 'partner2',
+      profile: newProfile,
+    });
+
+    if (onUpdateCoupleProfile) {
+      onUpdateCoupleProfile(newProfile);
+    }
+
+    setIsSubmitting(false);
+    sound.playVaultUnlocked();
+
+    try {
+      confetti({ particleCount: 90, spread: 80, origin: { y: 0.6 } });
+    } catch (e) {}
+
+    // Automatically log in as the creator (partner1)
+    onLoginSuccess('partner1');
+  };
+
+  // Hardware Biometric / Face ID
+  const handleBiometricAuth = async () => {
     sound.playBiometricScan();
-    const isAvail = await isPlatformAuthenticatorAvailable();
-    if (isAvail) {
+    const hasHardware = await isPlatformAuthenticatorAvailable();
+    if (hasHardware) {
       const auth = await verifyPasskey('partner1');
       if (auth.success) {
         sound.playVaultUnlocked();
@@ -246,337 +259,404 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         return;
       }
     }
-    setErrorMessage('Hardware Face ID not verified. Please enter your 4-digit PIN.');
+    setSignInError('Biometric passkey unavailable. Please use your 4-digit PIN.');
   };
 
+  // Reset demo
   const handleResetDemo = () => {
     sound.playSoftClick();
     if (onUpdateCoupleProfile) {
       onUpdateCoupleProfile(initialCoupleProfile);
     }
-    setEmailOrUsername('aarav@bondlock.vault');
-    setPasswordOrPin('1404');
-    setErrorMessage('');
-    setIsSignUp(false);
+    setSignInUser('Aarav');
+    setSignInPin('1404');
+    setSignInError('');
+    setAuthTab('signin');
   };
 
   return (
-    <div className="min-h-screen w-full bg-[#0A020D] flex items-center justify-center p-3 sm:p-6 md:p-10 font-sans selection:bg-[#FF2E93] selection:text-white select-none">
+    <div className="min-h-screen w-full bg-[#FAF5F7] flex items-center justify-center p-3 sm:p-6 md:p-8 font-sans selection:bg-[#FF2E93] selection:text-white select-none relative overflow-x-hidden">
       
-      {/* Central Split-Screen Card */}
-      <div className="w-full max-w-5xl xl:max-w-6xl min-h-[640px] md:h-[86vh] max-h-[820px] rounded-[36px] overflow-hidden shadow-2xl border border-white/10 flex flex-col md:flex-row relative bg-[#120317]">
+      {/* Subtle Background Floating Heart Orbs */}
+      <div className="absolute top-10 left-12 w-64 h-64 rounded-full bg-pink-200/40 blur-3xl pointer-events-none" />
+      <div className="absolute bottom-10 right-12 w-80 h-80 rounded-full bg-rose-200/40 blur-3xl pointer-events-none" />
+
+      {/* Main Wide Hero Card (Exact Shape from Reference Screenshot) */}
+      <div className="relative w-full max-w-5xl xl:max-w-6xl min-h-[620px] md:h-[84vh] max-h-[780px] bg-white rounded-[36px] sm:rounded-[44px] shadow-2xl border border-rose-100/80 overflow-hidden flex flex-col justify-between">
         
-        {/* ================= LEFT HALF: High-Fashion Aesthetic Portrait ================= */}
-        <div className="relative w-full md:w-1/2 h-64 sm:h-80 md:h-full overflow-hidden bg-black shrink-0">
-          <AnimatePresence mode="wait">
-            <motion.img
-              key={activeSlide}
-              src={CAROUSEL_SLIDES[activeSlide].image}
-              alt="Couples Vault Aesthetic"
-              initial={{ opacity: 0, scale: 1.05 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              transition={{ duration: 0.6 }}
-              className="w-full h-full object-cover object-center filter brightness-[0.92]"
-            />
-          </AnimatePresence>
-
-          {/* Warm Amber/Pink Ambient Gradient Overlay */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20 pointer-events-none" />
-
-          {/* Floating Frosted Glass Badge in Bottom-Left */}
-          <motion.div
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="absolute bottom-5 left-5 z-20 bg-black/60 backdrop-blur-md border border-white/15 rounded-2xl p-3 pr-4 flex items-center gap-3 text-white shadow-xl max-w-[240px]"
-          >
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-[#FF2E93] to-[#FBA1B7] flex items-center justify-center text-white shrink-0 shadow-sm">
-              <Sprout className="w-4 h-4 text-white" />
-            </div>
-            <div>
-              <div className="text-xs font-bold leading-tight text-white tracking-wide">
-                {CAROUSEL_SLIDES[activeSlide].title}
-              </div>
-              <div className="text-[11px] text-stone-300 font-sans leading-tight mt-0.5">
-                {CAROUSEL_SLIDES[activeSlide].subtitle}
-              </div>
-            </div>
-          </motion.div>
-
-          {/* Center Seam Capsule with Carousel Dots (Visible on Desktop) */}
-          <div className="hidden md:flex absolute -right-6 top-1/2 -translate-y-1/2 z-30 bg-[#0A020D] rounded-full px-3 py-1.5 items-center gap-2 border border-white/15 shadow-2xl">
-            {CAROUSEL_SLIDES.map((_, idx) => (
-              <button
-                key={idx}
-                onClick={() => handleSelectSlide(idx)}
-                className={`transition-all rounded-full ${
-                  activeSlide === idx
-                    ? 'w-6 h-2 bg-white'
-                    : 'w-2 h-2 bg-white/40 hover:bg-white/70'
-                }`}
-                title={`Slide ${idx + 1}`}
-              />
-            ))}
+        {/* Top-Left Red Swoosh with "B" Heart Badge */}
+        <div className="absolute top-0 left-0 w-28 sm:w-36 h-28 sm:h-36 bg-gradient-to-br from-[#FF2E93] via-[#E11D74] to-[#BE185D] rounded-br-[85px] sm:rounded-br-[100px] flex items-start justify-start p-4 sm:p-5 z-20 shadow-md">
+          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white shadow-sm flex items-center justify-center text-[#E11D74]">
+            <Heart className="w-5 h-5 fill-[#E11D74]" />
           </div>
         </div>
 
-        {/* ================= RIGHT HALF: Pink-Themed Auth Form ================= */}
-        <div className="w-full md:w-1/2 flex flex-col justify-between p-6 sm:p-10 md:p-12 lg:p-14 bg-gradient-to-br from-[#FFF5F8] via-[#FED7E2] to-[#FBA1B7] text-[#1E0727] overflow-y-auto">
-          
-          {/* Top Switcher (Already have an account? Log In / Sign Up) */}
-          <div className="flex items-center justify-between text-xs mb-4">
-            <div className="flex items-center gap-1.5">
-              <div className="w-6 h-6 rounded-full bg-[#1E0727] flex items-center justify-center text-white">
-                <Heart className="w-3.5 h-3.5 fill-[#FF2E93] text-[#FF2E93]" />
-              </div>
-              <span className="font-bold text-[#1E0727] tracking-wider uppercase text-[11px] font-mono">
-                BondLock
-              </span>
-            </div>
+        {/* Top Navigation Bar */}
+        <header className="w-full flex items-center justify-between pl-32 sm:pl-40 pr-6 sm:pr-10 pt-5 pb-3 z-10 text-xs sm:text-sm font-medium text-stone-600">
+          <div className="hidden sm:flex items-center gap-6 sm:gap-8 font-sans">
+            <span className="text-[#E11D74] font-bold border-b-2 border-[#E11D74] pb-0.5 cursor-pointer">
+              Home
+            </span>
+            <span className="hover:text-stone-900 cursor-pointer transition-colors">
+              Better half
+            </span>
+            <span className="hover:text-stone-900 cursor-pointer transition-colors">
+              Memories
+            </span>
+            <span className="hover:text-stone-900 cursor-pointer transition-colors">
+              Zero-Knowledge
+            </span>
+          </div>
 
-            <div className="text-stone-700 text-xs">
-              {isSignUp ? (
-                <>
-                  Already have an account?{' '}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sound.playSoftClick();
-                      setIsSignUp(false);
-                      setErrorMessage('');
-                    }}
-                    className="font-bold text-[#1E0727] hover:text-[#FF2E93] underline transition-colors"
-                  >
-                    Log In
-                  </button>
-                </>
-              ) : (
-                <>
-                  Don't have an account?{' '}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sound.playSoftClick();
-                      setIsSignUp(true);
-                      setErrorMessage('');
-                    }}
-                    className="font-bold text-[#1E0727] hover:text-[#FF2E93] underline transition-colors"
-                  >
-                    Sign Up
-                  </button>
-                </>
-              )}
+          {/* Top Right Mini Partner Pill */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-stone-100 border border-stone-200/80 shadow-2xs">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-xs font-mono font-semibold text-stone-700">
+              {coupleProfile.vaultName.split('’')[0]}
+            </span>
+          </div>
+        </header>
+
+        {/* ================= HERO CONTENT & FLOATING AUTH CARD ================= */}
+        <div className="relative flex-1 flex flex-col lg:flex-row items-center justify-between px-6 sm:px-12 md:px-16 py-4 overflow-y-auto">
+          
+          {/* LEFT HERO TEXT: "ALL U NEED IS LOVE." */}
+          <div className="z-10 flex flex-col items-start max-w-sm mb-6 lg:mb-0">
+            <h1 className="font-sans text-4xl sm:text-5xl md:text-6xl font-black tracking-tight text-stone-900 leading-[1.05]">
+              ALL U<br />
+              NEED IS<br />
+              <span className="text-stone-900">
+                LOVE<span className="text-[#FF2E93]">.</span>
+              </span>
+            </h1>
+
+            {/* Glowing Pill Button */}
+            <motion.button
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => handleSelectPartner('partner1')}
+              className="mt-6 px-7 py-3 rounded-full bg-gradient-to-r from-[#FF2E93] to-[#E11D74] text-white text-xs sm:text-sm font-bold uppercase tracking-wider shadow-lg shadow-[#FF2E93]/30 hover:opacity-95 transition-all flex items-center gap-2"
+            >
+              <Heart className="w-4 h-4 fill-white" />
+              <span>ENTER VAULT</span>
+            </motion.button>
+          </div>
+
+          {/* CENTER ROMANTIC COUPLE ARTWORK & FLOATING HEARTS */}
+          <div className="relative flex items-center justify-center my-4 lg:my-0">
+            {/* Halo Background Backdrop */}
+            <div className="w-72 h-72 sm:w-88 sm:h-88 md:w-96 md:h-96 rounded-full bg-gradient-to-tr from-pink-100/80 via-rose-50/60 to-purple-50/40 flex items-center justify-center relative shadow-inner">
+              
+              {/* Couple Silhouette / Vector Illustration */}
+              <div className="relative flex flex-col items-center">
+                <svg className="w-48 sm:w-56 md:w-64 h-auto drop-shadow-md" viewBox="0 0 200 240" fill="none">
+                  {/* Man lifting Woman illustration */}
+                  <circle cx="95" cy="50" r="14" fill="#292524" />
+                  <circle cx="112" cy="35" r="13" fill="#292524" />
+                  {/* Woman Hair bun */}
+                  <circle cx="118" cy="26" r="6" fill="#292524" />
+                  {/* Man Body */}
+                  <path d="M85 64 Q95 64 105 64 L105 130 Q95 135 85 130 Z" fill="#1C1917" />
+                  {/* Man Legs (Blue Trousers) */}
+                  <path d="M86 130 L82 195 L92 195 L96 140 L100 195 L110 195 L104 130 Z" fill="#2563EB" />
+                  {/* Woman Body & Dress (Dark Top, Coral Pink Pants) */}
+                  <path d="M104 48 Q115 50 120 70 L115 105 Q105 105 100 85 Z" fill="#1C1917" />
+                  <path d="M115 105 L145 135 L140 145 L110 115 Z" fill="#FB7185" />
+                  <path d="M110 105 L118 160 L110 160 L102 110 Z" fill="#FB7185" />
+                  {/* Shoes */}
+                  <rect x="78" y="193" width="16" height="6" rx="3" fill="#1C1917" />
+                  <rect x="100" y="193" width="16" height="6" rx="3" fill="#1C1917" />
+                </svg>
+
+                {/* Romantic Stream of Floating Red Hearts (From Screenshot) */}
+                <div className="absolute right-[-15px] top-[-10px] pointer-events-none">
+                  {[
+                    { x: 0, y: 0, size: 22, delay: 0 },
+                    { x: 18, y: -25, size: 16, delay: 0.2 },
+                    { x: -10, y: -45, size: 20, delay: 0.4 },
+                    { x: 25, y: -70, size: 18, delay: 0.6 },
+                    { x: 5, y: -95, size: 24, delay: 0.8 },
+                    { x: 30, y: -120, size: 16, delay: 1.0 },
+                  ].map((h, i) => (
+                    <motion.div
+                      key={i}
+                      animate={{
+                        y: [h.y, h.y - 8, h.y],
+                        rotate: [0, 8, -8, 0],
+                      }}
+                      transition={{
+                        duration: 3 + i * 0.5,
+                        repeat: Infinity,
+                        ease: 'easeInOut',
+                        delay: h.delay,
+                      }}
+                      style={{
+                        position: 'absolute',
+                        left: `${h.x}px`,
+                        top: `${h.y}px`,
+                      }}
+                    >
+                      <Heart
+                        className="fill-[#EF4444] text-[#EF4444] drop-shadow-md"
+                        style={{ width: h.size, height: h.size }}
+                      />
+                    </motion.div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Heading & Subtitle */}
-          <div className="my-auto py-2">
-            <h1 className="font-sans text-3xl sm:text-4xl font-extrabold tracking-tight text-[#1E0727]">
-              {isSignUp ? 'Build Your Flow' : 'Unlock Your Sanctuary'}
-            </h1>
-            <p className="text-xs sm:text-sm text-stone-700 mt-1.5 max-w-sm">
-              {isSignUp
-                ? 'Create your account and get started with a clear mind'
-                : 'Enter your credentials to decrypt your 2-of-2 partner key share'}
-            </p>
-
-            {/* Quick Demo Selector Chips (For instant testing without typing) */}
-            <div className="flex items-center gap-2 mt-4 mb-2">
-              <span className="text-[10px] font-mono text-stone-600 uppercase tracking-wider">
-                Demo Quick-Fill:
-              </span>
-              <button
-                type="button"
-                onClick={() => handleQuickSelect('partner1')}
-                className="px-2.5 py-1 rounded-full bg-white/70 hover:bg-white text-[11px] font-bold text-[#1E0727] border border-[#F472B6]/40 shadow-xs transition-all flex items-center gap-1"
-              >
-                <span>Aarav</span>
-                <span className="text-[9px] text-[#FF2E93] font-mono">(1404)</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickSelect('partner2')}
-                className="px-2.5 py-1 rounded-full bg-white/70 hover:bg-white text-[11px] font-bold text-[#1E0727] border border-[#F472B6]/40 shadow-xs transition-all flex items-center gap-1"
-              >
-                <span>Ananya</span>
-                <span className="text-[9px] text-[#A855F7] font-mono">(2512)</span>
-              </button>
-            </div>
-
-            {/* Auth Form */}
-            <form onSubmit={handleSubmit} className="space-y-3 mt-3">
-              {/* Input 1: Email Address / Username */}
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-stone-600">
-                  <Mail className="w-4 h-4" />
-                </div>
-                <input
-                  type="text"
-                  required
-                  placeholder="Email Address"
-                  value={emailOrUsername}
-                  onChange={(e) => {
-                    setEmailOrUsername(e.target.value);
-                    setErrorMessage('');
-                  }}
-                  className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-white/60 border border-[#F472B6]/40 focus:border-[#1E0727] focus:bg-white text-[#1E0727] placeholder-stone-500 text-sm transition-all focus:outline-none shadow-xs"
-                />
+          {/* ================= RIGHT FLOATING CARD (From Screenshot) ================= */}
+          <div className="z-20 w-full max-w-[340px] sm:max-w-[360px] bg-white rounded-3xl shadow-2xl border border-stone-200/70 p-5 sm:p-6 flex flex-col justify-between my-2">
+            
+            {/* Card Header & Brand */}
+            <div>
+              <div className="text-center mb-3">
+                <h2 className="font-serif text-2xl font-bold tracking-tight text-stone-900">
+                  BondLock<span className="text-[#FF2E93]">,</span>
+                </h2>
+                <p className="text-[11px] text-stone-500 font-sans mt-0.5">
+                  {authTab === 'signin' ? 'Sign in to access your locker' : 'Create 2-of-2 couple sanctuary'}
+                </p>
               </div>
 
-              {/* Input 2: Password / Security PIN */}
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-stone-600">
-                  <Lock className="w-4 h-4" />
-                </div>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  placeholder="Password"
-                  value={passwordOrPin}
-                  onChange={(e) => {
-                    setPasswordOrPin(e.target.value);
-                    setErrorMessage('');
-                  }}
-                  className="w-full pl-11 pr-11 py-3.5 rounded-2xl bg-white/60 border border-[#F472B6]/40 focus:border-[#1E0727] focus:bg-white text-[#1E0727] placeholder-stone-500 text-sm transition-all focus:outline-none shadow-xs"
-                />
+              {/* Segmented Tab Switcher (Sign In vs Sign Up) */}
+              <div className="flex items-center gap-1 p-1 rounded-2xl bg-stone-100 border border-stone-200 mb-4">
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-4 flex items-center text-stone-600 hover:text-black transition-colors"
+                  onClick={() => {
+                    sound.playSoftClick();
+                    setAuthTab('signin');
+                    setSignInError('');
+                  }}
+                  className={`flex-1 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                    authTab === 'signin'
+                      ? 'bg-white text-stone-900 shadow-xs'
+                      : 'text-stone-500 hover:text-stone-800'
+                  }`}
                 >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  Sign In
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.playSoftClick();
+                    setAuthTab('signup');
+                    setSignUpError('');
+                  }}
+                  className={`flex-1 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                    authTab === 'signup'
+                      ? 'bg-white text-stone-900 shadow-xs'
+                      : 'text-stone-500 hover:text-stone-800'
+                  }`}
+                >
+                  Sign Up
                 </button>
               </div>
+            </div>
 
-              {/* Extra Partner fields in Sign Up mode */}
-              {isSignUp && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  className="space-y-2 pt-1"
-                >
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="text"
-                      required
-                      placeholder="Partner's Name"
-                      value={partnerName}
-                      onChange={(e) => setPartnerName(e.target.value)}
-                      className="w-full px-3 py-2.5 rounded-xl bg-white/60 border border-[#F472B6]/40 text-[#1E0727] placeholder-stone-500 text-xs focus:outline-none focus:border-[#1E0727]"
-                    />
-                    <input
-                      type="password"
-                      maxLength={4}
-                      required
-                      placeholder="Partner PIN (4-digit)"
-                      value={partnerPin}
-                      onChange={(e) => setPartnerPin(e.target.value)}
-                      className="w-full px-3 py-2.5 rounded-xl bg-white/60 border border-[#F472B6]/40 text-[#1E0727] placeholder-stone-500 text-xs focus:outline-none focus:border-[#1E0727]"
-                    />
-                  </div>
-                </motion.div>
-              )}
+            {/* TAB 1: SIGN IN FORM */}
+            {authTab === 'signin' && (
+              <form onSubmit={handleSignIn} className="space-y-2.5">
+                
+                {/* 1-Tap Partner Quick-Select Chips */}
+                <div className="flex items-center gap-1.5 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSelectPartner('partner1')}
+                    className={`flex-1 py-1.5 px-2 rounded-xl text-xs font-medium border flex items-center justify-center gap-1.5 transition-all ${
+                      signInUser.toLowerCase().includes(partner1.name.toLowerCase())
+                        ? 'bg-[#FF2E93]/10 border-[#FF2E93] text-[#E11D74] font-bold shadow-2xs'
+                        : 'bg-stone-50 border-stone-200 text-stone-600 hover:border-stone-300'
+                    }`}
+                  >
+                    <span>{partner1.name}</span>
+                    <span className="text-[10px] text-stone-400 font-mono">(1404)</span>
+                  </button>
 
-              {/* Error Message Alert */}
-              {errorMessage && (
-                <div className="p-2.5 rounded-xl bg-panicRed/15 border border-panicRed/40 text-panicRed text-xs font-mono flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>{errorMessage}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectPartner('partner2')}
+                    className={`flex-1 py-1.5 px-2 rounded-xl text-xs font-medium border flex items-center justify-center gap-1.5 transition-all ${
+                      signInUser.toLowerCase().includes(partner2.name.toLowerCase())
+                        ? 'bg-[#A855F7]/10 border-[#A855F7] text-[#9333EA] font-bold shadow-2xs'
+                        : 'bg-stone-50 border-stone-200 text-stone-600 hover:border-stone-300'
+                    }`}
+                  >
+                    <span>{partner2.name}</span>
+                    <span className="text-[10px] text-stone-400 font-mono">(2512)</span>
+                  </button>
                 </div>
-              )}
 
-              {/* Primary CTA Button (Solid Dark Black / Mulberry Pill) */}
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full py-3.5 px-6 rounded-2xl bg-[#1E0727] hover:bg-[#FF2E93] active:scale-[0.99] text-white font-semibold text-sm flex items-center justify-center gap-2 transition-all shadow-md hover:shadow-pink-glow mt-1"
-              >
-                <span>{isSubmitting ? 'Authenticating...' : isSignUp ? 'Sign Up' : 'Sign In'}</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </form>
+                {/* Input 1: Username / Email Pill with Chevron */}
+                <div className="relative">
+                  <input
+                    type="text"
+                    required
+                    placeholder="Username or Email"
+                    value={signInUser}
+                    onChange={(e) => {
+                      setSignInUser(e.target.value);
+                      setSignInError('');
+                    }}
+                    className="w-full px-4 py-2.5 rounded-full bg-white border border-stone-300 text-stone-900 placeholder-stone-400 text-xs focus:outline-none focus:border-[#E11D74] transition-all pr-8 shadow-2xs"
+                  />
+                  <ChevronRight className="w-4 h-4 text-stone-400 absolute right-3 top-3 pointer-events-none" />
+                </div>
 
-            {/* Divider: "or continue with" */}
-            <div className="relative my-4 text-center">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-[#1E0727]/15" />
-              </div>
-              <span className="relative px-3 bg-gradient-to-r from-transparent via-[#FED7E2] to-transparent text-[11px] font-sans text-stone-600 uppercase tracking-wider">
-                or continue with
+                {/* Input 2: 4-Digit Security PIN Pill with Eye */}
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    maxLength={4}
+                    placeholder="4-Digit Security PIN"
+                    value={signInPin}
+                    onChange={(e) => {
+                      setSignInPin(e.target.value.replace(/\D/g, ''));
+                      setSignInError('');
+                    }}
+                    className="w-full px-4 py-2.5 rounded-full bg-white border border-stone-300 text-stone-900 placeholder-stone-400 font-mono text-xs focus:outline-none focus:border-[#E11D74] transition-all pr-9 shadow-2xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-2.5 text-stone-400 hover:text-stone-700"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+
+                {/* Error Banner */}
+                {signInError && (
+                  <p className="text-[11px] text-rose-600 font-sans text-center font-medium">
+                    {signInError}
+                  </p>
+                )}
+
+                {/* Dark Pill Submit Button (Exact Style from Screenshot) */}
+                <button
+                  type="submit"
+                  className="w-full py-3 rounded-full bg-[#18181B] hover:bg-black text-white text-xs font-bold uppercase tracking-wider shadow-md hover:shadow-lg transition-all active:scale-[0.99] mt-1"
+                >
+                  Sign In
+                </button>
+
+                {/* 1-Tap Biometric Button */}
+                <button
+                  type="button"
+                  onClick={handleBiometricAuth}
+                  className="w-full py-2 px-3 rounded-full bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors border border-stone-200"
+                >
+                  <ScanFace className="w-3.5 h-3.5 text-[#E11D74]" />
+                  <span>Face ID / Passkey</span>
+                </button>
+              </form>
+            )}
+
+            {/* TAB 2: SIGN UP FORM */}
+            {authTab === 'signup' && (
+              <form onSubmit={handleSignUp} className="space-y-2.5">
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    required
+                    placeholder="Your Name"
+                    value={signUpData.yourName}
+                    onChange={(e) => setSignUpData({ ...signUpData, yourName: e.target.value })}
+                    className="w-full px-3 py-2 rounded-full bg-white border border-stone-300 text-stone-900 text-xs focus:outline-none focus:border-[#E11D74]"
+                  />
+                  <input
+                    type="password"
+                    maxLength={4}
+                    required
+                    placeholder="Your PIN (4-digit)"
+                    value={signUpData.yourPin}
+                    onChange={(e) => setSignUpData({ ...signUpData, yourPin: e.target.value.replace(/\D/g, '') })}
+                    className="w-full px-3 py-2 rounded-full bg-white border border-stone-300 text-stone-900 font-mono text-center text-xs focus:outline-none focus:border-[#E11D74]"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    required
+                    placeholder="Partner Name"
+                    value={signUpData.partnerName}
+                    onChange={(e) => setSignUpData({ ...signUpData, partnerName: e.target.value })}
+                    className="w-full px-3 py-2 rounded-full bg-white border border-stone-300 text-stone-900 text-xs focus:outline-none focus:border-[#E11D74]"
+                  />
+                  <input
+                    type="password"
+                    maxLength={4}
+                    required
+                    placeholder="Partner PIN (4-digit)"
+                    value={signUpData.partnerPin}
+                    onChange={(e) => setSignUpData({ ...signUpData, partnerPin: e.target.value.replace(/\D/g, '') })}
+                    className="w-full px-3 py-2 rounded-full bg-white border border-stone-300 text-stone-900 font-mono text-center text-xs focus:outline-none focus:border-[#E11D74]"
+                  />
+                </div>
+
+                <input
+                  type="text"
+                  placeholder="Vault Name (e.g. Our Sanctuary)"
+                  value={signUpData.vaultName}
+                  onChange={(e) => setSignUpData({ ...signUpData, vaultName: e.target.value })}
+                  className="w-full px-3.5 py-2 rounded-full bg-white border border-stone-300 text-stone-900 text-xs focus:outline-none focus:border-[#E11D74]"
+                />
+
+                {signUpError && (
+                  <p className="text-[11px] text-rose-600 font-sans text-center font-medium">
+                    {signUpError}
+                  </p>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="w-full py-3 rounded-full bg-[#18181B] hover:bg-black text-white text-xs font-bold uppercase tracking-wider shadow-md hover:shadow-lg transition-all active:scale-[0.99] mt-1"
+                >
+                  {isSubmitting ? 'Creating Vault...' : 'Create Couple Vault'}
+                </button>
+              </form>
+            )}
+
+            {/* Quick Demo Reset Footer */}
+            <div className="pt-3 border-t border-stone-100 flex items-center justify-between text-[10px] text-stone-400 font-mono mt-2">
+              <span className="flex items-center gap-1">
+                <ShieldCheck className="w-3 h-3 text-[#E11D74]" />
+                <span>2-of-2 SSS</span>
               </span>
-            </div>
-
-            {/* 3 Social / Quick-Auth Buttons */}
-            <div className="grid grid-cols-3 gap-2.5">
-              {/* Google */}
               <button
                 type="button"
-                onClick={() => handleQuickSelect('partner1')}
-                className="py-2.5 px-3 rounded-2xl bg-white/70 hover:bg-white border border-[#F472B6]/30 text-[#1E0727] text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-2xs hover:shadow-xs"
+                onClick={handleResetDemo}
+                className="hover:text-stone-700 underline transition-colors"
               >
-                <svg className="w-4 h-4" viewBox="0 0 24 24">
-                  <path
-                    fill="#4285F4"
-                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                  />
-                  <path
-                    fill="#34A853"
-                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                  />
-                  <path
-                    fill="#FBBC05"
-                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                  />
-                  <path
-                    fill="#EA4335"
-                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                  />
-                </svg>
-                <span>Google</span>
-              </button>
-
-              {/* Apple / Face ID */}
-              <button
-                type="button"
-                onClick={handleAppleOrBiometric}
-                className="py-2.5 px-3 rounded-2xl bg-white/70 hover:bg-white border border-[#F472B6]/30 text-[#1E0727] text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-2xs hover:shadow-xs"
-              >
-                <svg className="w-4 h-4 fill-current" viewBox="0 0 170 170">
-                  <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.69-3.08-7.7-7.91-12.03-14.49-6.03-9.14-10.82-20.08-14.37-32.8-3.55-12.72-5.32-24.52-5.32-35.4 0-14.6 3.69-26.65 11.08-36.14 7.39-9.49 16.5-14.36 27.34-14.61 5.35 0 11.26 1.41 17.73 4.23 6.47 2.82 10.59 4.31 12.35 4.47 1.45 0 5.86-1.61 13.23-4.83 7.37-3.22 13.54-4.53 18.52-3.92 13.73 1.09 24.32 6.51 31.78 16.27-12.28 7.4-18.3 17.43-18.06 30.1.24 9.9 4.08 18.15 11.51 24.76 7.43 6.61 16.32 10.37 26.67 11.27-2.3 7.08-5.29 14.54-8.97 22.37zM119.22 31.84c0-7.2 2.66-14.07 7.99-20.61 5.33-6.54 11.97-10.65 19.92-12.33.24 1.46.36 2.79.36 3.99 0 7.23-2.85 14.12-8.55 20.67-5.7 6.55-12.44 10.45-20.22 11.7-.24-1.34-.36-2.48-.36-3.42z" />
-                </svg>
-                <span>Apple</span>
-              </button>
-
-              {/* Telegram / Passkey */}
-              <button
-                type="button"
-                onClick={() => handleQuickSelect('partner2')}
-                className="py-2.5 px-3 rounded-2xl bg-white/70 hover:bg-white border border-[#F472B6]/30 text-[#1E0727] text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-2xs hover:shadow-xs"
-              >
-                <Send className="w-3.5 h-3.5 text-[#0088cc]" />
-                <span>Telegram</span>
+                Reset Demo
               </button>
             </div>
+
           </div>
 
-          {/* Footer Terms & Demo Reset */}
-          <div className="pt-3 border-t border-[#1E0727]/10 flex flex-col items-center text-center gap-1">
-            <p className="text-[11px] text-stone-600 font-sans">
-              By signing up, you agree to our{' '}
-              <span className="font-bold text-[#1E0727] hover:underline cursor-pointer">Terms of Service</span> and{' '}
-              <span className="font-bold text-[#1E0727] hover:underline cursor-pointer">Privacy Policy</span>
-            </p>
+        </div>
 
-            <button
-              type="button"
-              onClick={handleResetDemo}
-              className="text-[10px] text-stone-500 hover:text-[#1E0727] flex items-center gap-1 font-mono mt-1 transition-colors"
-            >
-              <RefreshCw className="w-2.5 h-2.5" />
-              <span>Reset to Demo Couple (Aarav & Ananya)</span>
-            </button>
-          </div>
-
+        {/* Bottom Left Character Illustration (From Screenshot) */}
+        <div className="absolute bottom-3 left-4 sm:left-6 z-10 pointer-events-none opacity-85 hidden sm:block">
+          <svg className="w-20 sm:w-24 h-auto" viewBox="0 0 100 100" fill="none">
+            {/* Person with backpack holding heart balloons */}
+            <circle cx="40" cy="35" r="10" fill="#292524" />
+            <path d="M30 48 Q40 45 50 48 L46 80 L34 80 Z" fill="#1E293B" />
+            {/* Backpack */}
+            <rect x="23" y="48" width="10" height="18" rx="4" fill="#334155" />
+            {/* Balloon Strings & Hearts */}
+            <path d="M48 55 Q60 50 70 30" stroke="#E2E8F0" strokeWidth="1.5" />
+            <path d="M48 55 Q65 60 75 45" stroke="#E2E8F0" strokeWidth="1.5" />
+            <path d="M48 55 Q55 65 65 60" stroke="#E2E8F0" strokeWidth="1.5" />
+            <circle cx="70" cy="28" r="8" fill="#EF4444" />
+            <circle cx="75" cy="43" r="7" fill="#EF4444" />
+            <circle cx="65" cy="58" r="6" fill="#EF4444" />
+          </svg>
         </div>
 
       </div>
