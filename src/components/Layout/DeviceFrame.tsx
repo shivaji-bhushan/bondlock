@@ -49,34 +49,34 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({
   };
 
   return (
-    <div className="min-h-screen ambient-mulberry-bg text-stone-200 flex flex-col items-center justify-between font-sans relative selection:bg-[#FF2E93] selection:text-white">
+    <div className="min-h-[100dvh] ambient-mulberry-bg text-stone-200 flex flex-col items-center justify-between font-sans relative selection:bg-[#FF2E93] selection:text-white overflow-x-hidden">
       
-      {/* Top Controls Bar */}
-      <header className="w-full max-w-6xl px-4 py-2.5 flex items-center justify-between text-xs border-b border-white/10 z-40 bg-[#16051C]/80 backdrop-blur-md">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-[#FF2E93] to-[#A855F7] flex items-center justify-center text-white shadow-sm">
+      {/* Top Controls Ribbon (Compact & Responsive) */}
+      <header className="w-full max-w-6xl px-3 py-2 flex items-center justify-between text-xs border-b border-white/10 z-40 bg-[#16051C]/90 backdrop-blur-md sticky top-0">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-[#FF2E93] to-[#A855F7] flex items-center justify-center text-white shadow-sm shrink-0">
             <Heart className="w-3.5 h-3.5 fill-white" />
           </div>
           <div>
             <span className="font-sans font-bold text-sm tracking-wide text-white">
               BondLock
             </span>
-            <span className="hidden sm:inline ml-2 px-2 py-0.5 rounded-full bg-[#FF2E93]/20 text-[#FF4D9D] text-[10px] font-mono border border-[#FF2E93]/30">
-              Zero-Knowledge Dual Locker
+            <span className="hidden md:inline ml-2 px-2 py-0.5 rounded-full bg-[#FF2E93]/20 text-[#FF4D9D] text-[10px] font-mono border border-[#FF2E93]/30">
+              Zero-Knowledge Dual Vault
             </span>
           </div>
         </div>
 
-        {/* View mode & utilities toggle */}
-        <div className="flex items-center gap-2">
-          {/* View Mode Switcher */}
+        {/* View Mode & Utilities */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Mode Switcher */}
           <div className="flex items-center rounded-xl bg-black/40 p-0.5 border border-white/10">
             <button
               onClick={() => {
                 sound.playSoftClick();
                 onChangeViewMode('single');
               }}
-              className={`px-3 py-1 rounded-lg flex items-center gap-1.5 transition-all text-xs font-semibold ${
+              className={`px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-all text-xs font-semibold ${
                 viewMode === 'single'
                   ? 'btn-neon-pink text-white shadow-sm'
                   : 'text-stone-400 hover:text-stone-200'
@@ -84,7 +84,7 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({
               title="Interactive Mobile Frame"
             >
               <Smartphone className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Mobile Phone</span>
+              <span className="hidden sm:inline">Phone</span>
             </button>
 
             <button
@@ -92,15 +92,15 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({
                 sound.playSoftClick();
                 onChangeViewMode('panorama');
               }}
-              className={`px-3 py-1 rounded-lg flex items-center gap-1.5 transition-all text-xs font-semibold ${
+              className={`px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-all text-xs font-semibold ${
                 viewMode === 'panorama'
                   ? 'btn-neon-pink text-white shadow-sm'
                   : 'text-stone-400 hover:text-stone-200'
               }`}
-              title="3-Device Panorama (Like Reference Screenshot)"
+              title="3-Device Panorama Mode"
             >
               <LayoutGrid className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">3-Screen Panorama</span>
+              <span className="hidden sm:inline">3-Screens</span>
             </button>
 
             <button
@@ -108,7 +108,7 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({
                 sound.playSoftClick();
                 onChangeViewMode('desktop');
               }}
-              className={`px-3 py-1 rounded-lg flex items-center gap-1.5 transition-all text-xs font-semibold ${
+              className={`px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-all text-xs font-semibold ${
                 viewMode === 'desktop'
                   ? 'btn-neon-pink text-white shadow-sm'
                   : 'text-stone-400 hover:text-stone-200'
@@ -116,24 +116,24 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({
               title="Fluid Fullscreen Responsive Mode"
             >
               <Monitor className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Fluid Full</span>
+              <span className="hidden sm:inline">Desktop</span>
             </button>
           </div>
 
           {/* Sound Toggle */}
           <button
             onClick={toggleSound}
-            className={`p-2 rounded-xl border transition-colors ${
+            className={`p-1.5 sm:p-2 rounded-xl border transition-colors ${
               isMuted
                 ? 'bg-black/30 border-white/10 text-stone-500'
                 : 'bg-black/30 border-[#FF2E93]/40 text-[#FF4D9D]'
             }`}
-            title={isMuted ? 'Unmute procedural sound' : 'Mute procedural sound'}
+            title={isMuted ? 'Unmute sound' : 'Mute sound'}
           >
             {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
           </button>
 
-          {/* Reset Demo Data */}
+          {/* Reset Demo */}
           <button
             onClick={() => {
               if (window.confirm('Reset vault memories and state back to default?')) {
@@ -141,8 +141,8 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({
                 onResetData();
               }
             }}
-            className="p-2 rounded-xl bg-black/30 border border-white/10 text-stone-400 hover:text-stone-200 hover:border-white/20 transition-colors"
-            title="Reset vault demo state"
+            className="p-1.5 sm:p-2 rounded-xl bg-black/30 border border-white/10 text-stone-400 hover:text-stone-200 hover:border-white/20 transition-colors"
+            title="Reset vault state"
           >
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
@@ -150,7 +150,7 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({
       </header>
 
       {/* Main Container Area */}
-      <main className="w-full flex-1 flex items-center justify-center p-2 sm:p-5 md:p-8 overflow-x-auto relative">
+      <main className="w-full flex-1 flex items-center justify-center p-0 sm:p-3 md:p-6 overflow-hidden relative">
         <WatermarkLayer
           partner1Name={partner1Name}
           partner2Name={partner2Name}
@@ -158,20 +158,19 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({
         />
 
         {viewMode === 'panorama' ? (
-          /* 3-Device Panorama Mode matching the exact reference image */
-          <div className="w-full max-w-7xl flex items-center justify-center py-6 px-2">
+          /* 3-Device Panorama Mode */
+          <div className="w-full max-w-7xl flex items-center justify-center py-4 px-2 overflow-x-auto">
             {panoramaContent}
           </div>
         ) : viewMode === 'single' ? (
-          /* Sleek iPhone 16 Pro Style Mobile Shell matching reference */
-          <div className="relative w-full max-w-[400px] h-[100dvh] sm:h-[840px] bg-[#120317] sm:rounded-[50px] shadow-phone-frame sm:border-[8px] sm:border-[#330B3E] flex flex-col overflow-hidden sm:ring-1 sm:ring-white/20">
+          /* Single Mobile Phone Mockup */
+          <div className="relative w-full sm:max-w-[400px] h-[100dvh] sm:h-[min(820px,92vh)] bg-[#120317] sm:rounded-[48px] shadow-phone-frame sm:border-[8px] sm:border-[#380E45] flex flex-col overflow-hidden sm:ring-1 sm:ring-white/20">
             
-            {/* Dynamic Island / Hardware Notch */}
-            <div className="hidden sm:flex items-center justify-between px-7 pt-3 pb-1 select-none z-30">
+            {/* Dynamic Island / iOS Notch */}
+            <div className="hidden sm:flex items-center justify-between px-6 pt-3 pb-1 select-none z-30 shrink-0">
               <span className="text-xs font-semibold text-stone-200 tracking-tight font-sans">
                 {currentTime}
               </span>
-              {/* Dynamic Island Capsule */}
               <div className="w-24 h-5 rounded-full bg-black border border-white/10 flex items-center justify-center gap-1.5 px-2">
                 <span className="w-2 h-2 rounded-full bg-[#FF2E93] animate-pulse" />
                 <span className="text-[9px] font-mono text-stone-400 tracking-wider">BondLock</span>
@@ -185,18 +184,18 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({
             </div>
 
             {/* Inner App Canvas */}
-            <div className="flex-1 overflow-y-auto relative scrollbar-none flex flex-col">
+            <div className="flex-1 overflow-y-auto relative scrollbar-none flex flex-col min-h-0">
               {children}
             </div>
 
             {/* iOS Home Indicator Bar */}
-            <div className="hidden sm:flex justify-center pb-2 pt-1 select-none pointer-events-none z-30 bg-[#16051C]/90">
+            <div className="hidden sm:flex justify-center pb-2 pt-1 select-none pointer-events-none z-30 bg-[#16051C]/90 shrink-0">
               <div className="w-32 h-1 rounded-full bg-white/25" />
             </div>
           </div>
         ) : (
           /* Fluid Edge-to-Edge Desktop Mode */
-          <div className="w-full max-w-5xl min-h-[85vh] bg-[#120317] rounded-3xl border border-white/10 shadow-2xl overflow-hidden flex flex-col relative my-4">
+          <div className="w-full max-w-4xl min-h-[82vh] bg-[#120317] rounded-3xl border border-white/10 shadow-2xl overflow-hidden flex flex-col relative my-2">
             <div className="flex-1 overflow-y-auto p-4 sm:p-6">
               {children}
             </div>
@@ -205,8 +204,8 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({
       </main>
 
       {/* Footer Branding */}
-      <footer className="w-full py-2.5 text-center text-[11px] text-stone-500 font-mono border-t border-white/5 select-none z-20">
-        <span>BondLock Zero-Knowledge Cryptographic Vault • Inspired by Intimate Luxury Mobile UX</span>
+      <footer className="w-full py-2 text-center text-[11px] text-stone-500 font-mono border-t border-white/5 select-none z-20">
+        <span>BondLock Zero-Knowledge Cryptographic Locker • 2-of-2 Dual-Device Protection</span>
       </footer>
     </div>
   );

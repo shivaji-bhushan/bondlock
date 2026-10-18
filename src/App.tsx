@@ -376,7 +376,8 @@ export function App() {
         {renderCurrentScreen()}
       </div>
 
-      {viewMode === 'single' && !isFrozen && (
+      {/* Bottom Nav Bar (Dock) when Unlocked in Single Mobile View */}
+      {viewMode === 'single' && !isFrozen && isUnlocked && (
         <BottomNav
           activeTab={activeTab}
           onSelectTab={(tab) => {

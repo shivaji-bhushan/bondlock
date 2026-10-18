@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import confetti from 'canvas-confetti';
-import { motion } from 'framer-motion';
-import { Heart, Sparkles, Smartphone, Shield, QrCode, ScanFace, Check } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Shield, QrCode, ScanFace, Check, KeyRound, Lock, Unlock, Sparkles, Smartphone, ArrowRightLeft, AlertCircle } from 'lucide-react';
 import { CoupleProfile } from '../../types/vault';
 import { InterlockingKey } from './InterlockingKey';
 import { DualDeviceModal } from './DualDeviceModal';
 import { PairDeviceModal } from './PairDeviceModal';
 import { PasskeyModal } from '../Security/PasskeyModal';
-import { verifyPasskey, isPlatformAuthenticatorAvailable } from '../../utils/webAuthn';
+import { PinModal } from './PinModal';
+import { verifyPasskey, isPlatformAuthenticatorAvailable, hasEnrolledPasskey } from '../../utils/webAuthn';
 import { realtimeVault } from '../../utils/realtimeVault';
 import { sound } from '../../utils/sound';
 
@@ -38,7 +39,18 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   const [isDualModalOpen, setIsDualModalOpen] = useState(false);
   const [isPairModalOpen, setIsPairModalOpen] = useState(false);
   const [isPasskeyModalOpen, setIsPasskeyModalOpen] = useState(false);
-  const [biometricScanning, setBiometricScanning] = useState<'partner1' | 'partner2' | null>(null);
+  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
+  const [biometricScanning, setBiometricScanning] = useState(false);
+
+  // Active Partner Data for this phone
+  const isPartner1 = currentRole === 'partner1';
+  const myPartner = isPartner1 ? coupleProfile.partner1 : coupleProfile.partner2;
+  const otherPartner = isPartner1 ? coupleProfile.partner2 : coupleProfile.partner1;
+  const myApproved = isPartner1 ? partner1Approved : partner2Approved;
+  const otherApproved = isPartner1 ? partner2Approved : partner1Approved;
+
+  // Expected PINs (Aarav: 1404, Ananya: 2512)
+  const myExpectedPin = isPartner1 ? '1404' : '2512';
 
   // Subscribe to real-time events across physical devices
   useEffect(() => {
@@ -61,11 +73,11 @@ export const LockScreen: React.FC<LockScreenProps> = ({
     return () => unsubscribe();
   }, []);
 
-  // 30-second security window when only one partner approves
+  // 45-second security window when only one partner approves
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if ((partner1Approved && !partner2Approved) || (!partner1Approved && partner2Approved)) {
-      setTimeRemaining(30);
+      setTimeRemaining(45);
       timer = setInterval(() => {
         setTimeRemaining((prev) => {
           if (prev === null || prev <= 1) {
@@ -110,121 +122,51 @@ export const LockScreen: React.FC<LockScreenProps> = ({
     }
   }, [partner1Approved, partner2Approved, onUnlockVault]);
 
-  // Real Hardware Biometric Trigger for Partner 1
-  const handleTogglePartner1 = async () => {
-    if (partner1Approved) {
+  // Real Hardware Biometric Trigger for the active partner on this device
+  const handleAuthorizeMyDevice = async () => {
+    if (myApproved) {
+      // Revoke consent
       sound.playSoftClick();
-      setPartner1Approved(false);
-      realtimeVault.broadcastMessage({
-        type: 'CONSENT_REVOKED',
-        partnerId: 'partner1',
-        timestamp: Date.now(),
-      });
+      if (isPartner1) setPartner1Approved(false);
+      else setPartner2Approved(false);
+      realtimeVault.sendConsent(false);
       return;
     }
 
     sound.playBiometricScan();
-    setBiometricScanning('partner1');
+    setBiometricScanning(true);
 
-    // Attempt real WebAuthn hardware Face ID / Touch ID
     const hasHardware = await isPlatformAuthenticatorAvailable();
     if (hasHardware) {
-      const auth = await verifyPasskey('partner1');
-      setBiometricScanning(null);
+      const auth = await verifyPasskey(currentRole);
+      setBiometricScanning(false);
       if (auth.success) {
         sound.playPartnerApproved();
-        setPartner1Approved(true);
-        realtimeVault.broadcastMessage({
-          type: 'CONSENT_GRANTED',
-          partnerId: 'partner1',
-          timestamp: Date.now(),
-        });
+        if (isPartner1) setPartner1Approved(true);
+        else setPartner2Approved(true);
+        realtimeVault.sendConsent(true);
         return;
       }
     }
 
-    // Smooth fallback if no hardware or cancelled
-    setTimeout(() => {
-      setBiometricScanning(null);
-      sound.playPartnerApproved();
-      setPartner1Approved(true);
-      realtimeVault.broadcastMessage({
-        type: 'CONSENT_GRANTED',
-        partnerId: 'partner1',
-        timestamp: Date.now(),
-      });
-    }, 400);
+    setBiometricScanning(false);
+    // If no hardware or user cancelled biometric, prompt for Passcode PIN modal
+    setIsPinModalOpen(true);
   };
 
-  // Real Hardware Biometric Trigger for Partner 2
-  const handleTogglePartner2 = async () => {
-    if (partner2Approved) {
-      sound.playSoftClick();
-      setPartner2Approved(false);
-      realtimeVault.broadcastMessage({
-        type: 'CONSENT_REVOKED',
-        partnerId: 'partner2',
-        timestamp: Date.now(),
-      });
-      return;
-    }
-
-    sound.playBiometricScan();
-    setBiometricScanning('partner2');
-
-    // Attempt real WebAuthn hardware Face ID / Touch ID
-    const hasHardware = await isPlatformAuthenticatorAvailable();
-    if (hasHardware) {
-      const auth = await verifyPasskey('partner2');
-      setBiometricScanning(null);
-      if (auth.success) {
-        sound.playPartnerApproved();
-        setPartner2Approved(true);
-        realtimeVault.broadcastMessage({
-          type: 'CONSENT_GRANTED',
-          partnerId: 'partner2',
-          timestamp: Date.now(),
-        });
-        return;
-      }
-    }
-
-    // Smooth fallback if no hardware or cancelled
-    setTimeout(() => {
-      setBiometricScanning(null);
-      sound.playPartnerApproved();
-      setPartner2Approved(true);
-      realtimeVault.broadcastMessage({
-        type: 'CONSENT_GRANTED',
-        partnerId: 'partner2',
-        timestamp: Date.now(),
-      });
-    }, 400);
+  const handlePinSuccess = () => {
+    sound.playPartnerApproved();
+    if (isPartner1) setPartner1Approved(true);
+    else setPartner2Approved(true);
+    realtimeVault.sendConsent(true);
   };
 
-  const handleSimulateBoth = () => {
-    sound.playBiometricScan();
-    setPartner1Approved(true);
-    realtimeVault.broadcastMessage({
-      type: 'CONSENT_GRANTED',
-      partnerId: 'partner1',
-      timestamp: Date.now(),
-    });
-
-    setTimeout(() => {
-      setPartner2Approved(true);
-      realtimeVault.broadcastMessage({
-        type: 'CONSENT_GRANTED',
-        partnerId: 'partner2',
-        timestamp: Date.now(),
-      });
-    }, 280);
-  };
+  const bothApproved = partner1Approved && partner2Approved;
 
   return (
     <div className="relative min-h-full flex flex-col justify-between py-3 px-4 sm:px-6 select-none ambient-app-canvas text-stone-200">
       
-      {/* Top Header: Title + Pair QR + Face ID Passkey button */}
+      {/* Top Header Bar */}
       <div className="flex items-center justify-between z-10 pt-1">
         <button
           onClick={onOpenSecurity}
@@ -248,11 +190,11 @@ export const LockScreen: React.FC<LockScreenProps> = ({
           title="Pair Real Phone via QR / WhatsApp"
         >
           <span className={`w-2 h-2 rounded-full ${partnerConnected ? 'bg-emeraldGlow' : 'bg-[#FF2E93] animate-ping'}`} />
-          <span>{partnerConnected ? 'Partner Synced' : 'Pair Real Phone'}</span>
+          <span>{partnerConnected ? 'Live Synced' : 'Pair Real Phone'}</span>
           <QrCode className="w-3 h-3 ml-0.5" />
         </button>
 
-        {/* Real Hardware Face ID / Passkey Setup Button */}
+        {/* Hardware Face ID / Passkey Setup Button */}
         <button
           onClick={() => {
             sound.playSoftClick();
@@ -265,197 +207,234 @@ export const LockScreen: React.FC<LockScreenProps> = ({
         </button>
       </div>
 
-      {/* Main Composition: Organic Cutouts with Floating Tags */}
-      <div className="relative my-auto flex flex-col items-center justify-center py-2">
-        <div className="absolute w-72 h-72 rounded-full bg-gradient-to-tr from-[#FF2E93]/20 via-[#A855F7]/20 to-transparent blur-3xl pointer-events-none" />
-
-        <div className="relative w-72 h-72 flex items-center justify-center">
+      {/* Hero Visual Area: Nicely Structured (No Collisions!) */}
+      <div className="flex-1 flex flex-col items-center justify-center my-auto py-2 z-10">
+        
+        {/* Couple Avatars & Connection Bar */}
+        <div className="w-full max-w-sm flex items-center justify-between px-2 mb-2">
           
-          {/* FLOATING TAG 1 (Partner 1) */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className={`absolute top-2 left-0 z-30 glass-pill px-3 py-1.5 rounded-full flex items-center gap-1.5 cursor-pointer shadow-lg border transition-all ${
-              partner1Approved ? 'border-emeraldGlow bg-emeraldGlow/20 text-emeraldGlow' : 'border-white/15'
-            }`}
-            onClick={handleTogglePartner1}
-          >
-            <span className={`w-2 h-2 rounded-full ${partner1Approved ? 'bg-emeraldGlow' : 'bg-[#FF2E93] animate-pulse'}`} />
-            <span className="text-[11px] font-sans font-medium text-stone-100 flex items-center gap-1">
-              <ScanFace className="w-3 h-3 text-[#FF4D9D]" />
-              {coupleProfile.partner1.name} {partner1Approved ? '✓' : '(Share 1)'}
+          {/* Partner 1 Avatar Block */}
+          <div className="flex flex-col items-center">
+            <span className="glass-pill px-2.5 py-1 rounded-full text-[10px] font-sans font-semibold text-stone-200 mb-2 flex items-center gap-1">
+              <span>❤️</span>
+              <span>{coupleProfile.partner1.name}</span>
             </span>
-          </motion.div>
 
-          {/* FLOATING TAG 2 (Partner 2) */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.1 }}
-            className={`absolute top-8 right-0 z-30 glass-pill px-3 py-1.5 rounded-full flex items-center gap-1.5 cursor-pointer shadow-lg border transition-all ${
-              partner2Approved ? 'border-emeraldGlow bg-emeraldGlow/20 text-emeraldGlow' : 'border-white/15'
-            }`}
-            onClick={handleTogglePartner2}
-          >
-            <span className="text-[11px] text-amber-300">✨</span>
-            <span className="text-[11px] font-sans font-medium text-stone-100 flex items-center gap-1">
-              <ScanFace className="w-3 h-3 text-[#A855F7]" />
-              {coupleProfile.partner2.name} {partner2Approved ? '✓' : '(Share 2)'}
-            </span>
-          </motion.div>
-
-          {/* FLOATING TAG 3 */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.2 }}
-            className="absolute bottom-6 left-2 z-30 glass-pill px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-lg border border-white/15"
-          >
-            <span className="text-[11px]">👥</span>
-            <span className="text-[11px] font-sans font-medium text-stone-200">
-              1,283d Together
-            </span>
-          </motion.div>
-
-          {/* FLOATING TAG 4 */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.3 }}
-            className="absolute bottom-3 right-0 z-30 glass-pill px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-lg border border-white/15"
-          >
-            <span className="text-[11px]">🔒</span>
-            <span className="text-[11px] font-sans font-medium text-stone-200">
-              2/2 Shamir Lock
-            </span>
-          </motion.div>
-
-          {/* PARTNER 1 (Left Circle Avatar) */}
-          <motion.div
-            whileHover={{ scale: 1.05 }}
-            onClick={handleTogglePartner1}
-            className={`absolute top-6 left-6 w-32 h-32 rounded-full overflow-hidden border-2 cursor-pointer shadow-2xl transition-all duration-500 z-10 ${
+            <div className={`relative w-20 h-20 sm:w-24 sm:h-24 rounded-full p-0.5 border-2 transition-all duration-300 ${
               partner1Approved
-                ? 'border-[#4ECCA3] shadow-[0_0_25px_rgba(78,204,163,0.5)]'
-                : biometricScanning === 'partner1'
-                  ? 'border-[#FF2E93] shadow-pink-glow animate-pulse'
-                  : 'border-[#FF2E93]/60 hover:border-[#FF2E93]'
-            }`}
-          >
-            <img
-              src={coupleProfile.partner1.avatar}
-              alt={coupleProfile.partner1.name}
-              className="w-full h-full object-cover"
-            />
-            {partner1Approved && (
-              <div className="absolute inset-0 bg-emeraldGlow/30 backdrop-blur-2xs flex items-center justify-center">
-                <Check className="w-8 h-8 text-white stroke-[3] filter drop-shadow" />
+                ? 'border-emeraldGlow shadow-[0_0_20px_rgba(78,204,163,0.5)]'
+                : 'border-[#FF2E93]/60'
+            }`}>
+              <img
+                src={coupleProfile.partner1.avatar}
+                alt={coupleProfile.partner1.name}
+                className="w-full h-full object-cover rounded-full"
+              />
+              <div className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold border-2 border-[#120317] ${
+                partner1Approved ? 'bg-emeraldGlow text-black' : 'bg-black/80 text-stone-400'
+              }`}>
+                {partner1Approved ? '✓' : '1'}
               </div>
-            )}
-            {biometricScanning === 'partner1' && (
-              <div className="absolute inset-0 bg-black/60 backdrop-blur-xs flex flex-col items-center justify-center">
-                <ScanFace className="w-8 h-8 text-[#FF4D9D] animate-spin" />
-                <span className="text-[9px] font-mono text-white mt-1">Scanning...</span>
-              </div>
-            )}
-          </motion.div>
+            </div>
 
-          {/* PARTNER 2 (Right Vertical Rounded Pill Avatar) */}
-          <motion.div
-            whileHover={{ scale: 1.05 }}
-            onClick={handleTogglePartner2}
-            className={`absolute bottom-2 right-6 w-32 h-44 rounded-[40px] overflow-hidden border-2 cursor-pointer shadow-2xl transition-all duration-500 z-20 ${
+            <span className={`text-[10px] font-mono mt-1.5 ${partner1Approved ? 'text-emeraldGlow font-bold' : 'text-stone-400'}`}>
+              {partner1Approved ? 'Share 1 Active' : 'Key Share 1'}
+            </span>
+          </div>
+
+          {/* Interlocking Heart / Key Animation in Center */}
+          <div className="flex-1 flex flex-col items-center px-1">
+            <div className="relative w-24 h-24 flex items-center justify-center">
+              <motion.div
+                className={`w-14 h-14 rounded-full flex items-center justify-center border transition-all duration-500 ${
+                  bothApproved
+                    ? 'bg-[#FF2E93] text-white border-white shadow-pink-glow scale-110'
+                    : partner1Approved || partner2Approved
+                      ? 'bg-black/60 text-emeraldGlow border-emeraldGlow shadow-[0_0_15px_rgba(78,204,163,0.3)] animate-pulse'
+                      : 'bg-black/40 text-[#FF4D9D] border-white/10'
+                }`}
+              >
+                {bothApproved ? (
+                  <Unlock className="w-6 h-6 stroke-[2.5]" />
+                ) : (
+                  <Lock className="w-6 h-6 stroke-[2]" />
+                )}
+              </motion.div>
+            </div>
+            <span className="text-[10px] font-mono text-[#FF4D9D] uppercase tracking-wider">
+              2/2 SSS Lock
+            </span>
+          </div>
+
+          {/* Partner 2 Avatar Block */}
+          <div className="flex flex-col items-center">
+            <span className="glass-pill px-2.5 py-1 rounded-full text-[10px] font-sans font-semibold text-stone-200 mb-2 flex items-center gap-1">
+              <span>✨</span>
+              <span>{coupleProfile.partner2.name}</span>
+            </span>
+
+            <div className={`relative w-20 h-20 sm:w-24 sm:h-24 rounded-full p-0.5 border-2 transition-all duration-300 ${
               partner2Approved
-                ? 'border-[#4ECCA3] shadow-[0_0_25px_rgba(78,204,163,0.5)]'
-                : biometricScanning === 'partner2'
-                  ? 'border-[#A855F7] shadow-pink-glow animate-pulse'
-                  : 'border-[#A855F7]/60 hover:border-[#A855F7]'
-            }`}
-          >
-            <img
-              src={coupleProfile.partner2.avatar}
-              alt={coupleProfile.partner2.name}
-              className="w-full h-full object-cover"
-            />
-            {partner2Approved && (
-              <div className="absolute inset-0 bg-emeraldGlow/30 backdrop-blur-2xs flex items-center justify-center">
-                <Check className="w-8 h-8 text-white stroke-[3] filter drop-shadow" />
+                ? 'border-emeraldGlow shadow-[0_0_20px_rgba(78,204,163,0.5)]'
+                : 'border-[#A855F7]/60'
+            }`}>
+              <img
+                src={coupleProfile.partner2.avatar}
+                alt={coupleProfile.partner2.name}
+                className="w-full h-full object-cover rounded-full"
+              />
+              <div className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold border-2 border-[#120317] ${
+                partner2Approved ? 'bg-emeraldGlow text-black' : 'bg-black/80 text-stone-400'
+              }`}>
+                {partner2Approved ? '✓' : '2'}
               </div>
-            )}
-            {biometricScanning === 'partner2' && (
-              <div className="absolute inset-0 bg-black/60 backdrop-blur-xs flex flex-col items-center justify-center">
-                <ScanFace className="w-8 h-8 text-[#A855F7] animate-spin" />
-                <span className="text-[9px] font-mono text-white mt-1">Scanning...</span>
-              </div>
-            )}
-          </motion.div>
+            </div>
 
-          {/* Center Interlocking Key */}
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-25">
-            <InterlockingKey
-              partner1Approved={partner1Approved}
-              partner2Approved={partner2Approved}
-              partner1Name={coupleProfile.partner1.name}
-              partner2Name={coupleProfile.partner2.name}
-              isUnlocked={partner1Approved && partner2Approved}
-            />
+            <span className={`text-[10px] font-mono mt-1.5 ${partner2Approved ? 'text-emeraldGlow font-bold' : 'text-stone-400'}`}>
+              {partner2Approved ? 'Share 2 Active' : 'Key Share 2'}
+            </span>
+          </div>
+
+        </div>
+
+        {/* Live Mutual Status Alert Card */}
+        <div className="w-full max-w-sm mt-3 px-2">
+          <div className={`p-3 rounded-2xl border text-center transition-all ${
+            bothApproved
+              ? 'bg-emeraldGlow/15 border-emeraldGlow/40 text-emeraldGlow'
+              : myApproved && !otherApproved
+                ? 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                : !myApproved && otherApproved
+                  ? 'bg-[#FF2E93]/15 border-[#FF2E93]/40 text-stone-200 animate-pulse'
+                  : 'bg-black/30 border-white/10 text-stone-300'
+          }`}>
+            {bothApproved ? (
+              <div className="flex items-center justify-center gap-1.5 text-xs font-bold">
+                <Sparkles className="w-4 h-4 text-emeraldGlow animate-spin" />
+                <span>Both Partners Approved • Decrypting Vault...</span>
+              </div>
+            ) : myApproved && !otherApproved ? (
+              <div className="text-xs">
+                <span className="font-bold text-amber-300 block">
+                  ✓ You ({myPartner.name}) Approved!
+                </span>
+                <span className="text-[11px] text-stone-400 font-mono mt-0.5 block">
+                  Waiting for {otherPartner.name} to scan on Phone 2... ({timeRemaining}s)
+                </span>
+              </div>
+            ) : !myApproved && otherApproved ? (
+              <div className="text-xs">
+                <span className="font-bold text-[#FF4D9D] block">
+                  ⚡ {otherPartner.name} has Approved on their phone!
+                </span>
+                <span className="text-[11px] text-stone-300 mt-0.5 block">
+                  Scan your Face ID below to unlock the vault. ({timeRemaining}s)
+                </span>
+              </div>
+            ) : (
+              <div className="text-xs">
+                <span className="font-semibold text-stone-200 block">
+                  Dual-Approval Required
+                </span>
+                <span className="text-[10px] text-stone-400 font-mono mt-0.5 block">
+                  Both partners must verify from their devices to decrypt
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* 30s Security Countdown */}
-        {timeRemaining !== null && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mt-2 text-center text-xs font-mono text-amber-300 bg-amber-500/10 border border-amber-500/20 px-3.5 py-1 rounded-full inline-block"
-          >
-            Waiting for other partner... ({timeRemaining}s)
-          </motion.div>
-        )}
       </div>
 
-      {/* Hero Typography & CTA */}
-      <div className="text-center px-2 pb-2 z-10 flex flex-col items-center">
-        <h1 className="font-sans text-2xl sm:text-3xl font-bold tracking-tight text-white mb-1.5 leading-tight">
-          Two Hearts, One Key.<br />
-          <span className="bg-gradient-to-r from-[#FF4D9D] to-[#A855F7] bg-clip-text text-transparent">
-            Fall in Love Every Day
-          </span>
-        </h1>
+      {/* Control Area for THIS Device */}
+      <div className="text-center px-2 pb-1 z-10 flex flex-col items-center">
+        
+        {/* Device Identity Badge */}
+        <div className="flex items-center gap-2 mb-3 text-xs text-stone-400">
+          <span>This phone is: <strong className="text-white">{myPartner.name} (Phone {isPartner1 ? '1' : '2'})</strong></span>
+          <button
+            onClick={() => {
+              sound.playSoftClick();
+              onChangeRole(isPartner1 ? 'partner2' : 'partner1');
+            }}
+            className="text-[#FF4D9D] hover:underline flex items-center gap-0.5 font-semibold text-[11px]"
+            title="Switch phone role"
+          >
+            <ArrowRightLeft className="w-3 h-3" />
+            <span>Switch</span>
+          </button>
+        </div>
 
-        <p className="text-xs text-stone-400 max-w-xs mb-4 leading-relaxed font-sans">
-          Tap your photo to trigger native Apple Face ID / Android Biometric sensor.
-        </p>
-
-        {/* Primary CTA Button */}
+        {/* Primary Action Button (Only approves for THIS user!) */}
         <motion.button
-          onClick={handleSimulateBoth}
+          onClick={handleAuthorizeMyDevice}
+          disabled={bothApproved || biometricScanning}
           whileTap={{ scale: 0.96 }}
-          className="w-full max-w-xs py-3.5 px-6 rounded-full btn-neon-pink text-white font-bold text-sm tracking-wide flex items-center justify-center gap-2 shadow-pink-glow transition-all mb-2.5 cursor-pointer"
+          className={`w-full max-w-xs py-3.5 px-6 rounded-full font-bold text-sm tracking-wide flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer mb-2.5 ${
+            myApproved
+              ? 'bg-emeraldGlow/20 text-emeraldGlow border border-emeraldGlow/40 hover:bg-emeraldGlow/30'
+              : 'btn-neon-pink text-white shadow-pink-glow'
+          }`}
         >
-          <Sparkles className="w-4 h-4 fill-white" />
-          <span>Authorize Vault Unlock</span>
+          {biometricScanning ? (
+            <>
+              <ScanFace className="w-4 h-4 animate-spin" />
+              <span>Scanning Face ID...</span>
+            </>
+          ) : myApproved ? (
+            <>
+              <Check className="w-4 h-4 stroke-[3]" />
+              <span>You Approved (Tap to Cancel)</span>
+            </>
+          ) : (
+            <>
+              <ScanFace className="w-4 h-4" />
+              <span>Verify Face ID as {myPartner.name}</span>
+            </>
+          )}
         </motion.button>
 
+        {/* Fallback & Helper links */}
         <div className="flex items-center justify-center gap-3 text-xs text-stone-400">
+          {!myApproved && (
+            <>
+              <button
+                onClick={() => setIsPinModalOpen(true)}
+                className="text-stone-300 hover:text-white flex items-center gap-1 font-mono text-[11px]"
+              >
+                <KeyRound className="w-3.5 h-3.5 text-amber-300" />
+                <span>Enter PIN Code</span>
+              </button>
+              <span>•</span>
+            </>
+          )}
           <button
-            onClick={() => setIsPasskeyModalOpen(true)}
+            onClick={() => setIsPairModalOpen(true)}
             className="text-[#FF4D9D] hover:underline font-semibold flex items-center gap-1"
           >
-            <ScanFace className="w-3.5 h-3.5" />
-            <span>Enroll Hardware Face ID</span>
+            <QrCode className="w-3.5 h-3.5" />
+            <span>Pair Another Phone</span>
           </button>
           <span>•</span>
           <button
-            onClick={() => setIsPairModalOpen(true)}
+            onClick={() => setIsDualModalOpen(true)}
             className="hover:text-stone-200"
           >
-            Pair 2 Phones
+            Simulation
           </button>
         </div>
       </div>
 
-      {/* Hardware Face ID / Passkey Modal */}
+      {/* Security PIN Entry Modal */}
+      <PinModal
+        isOpen={isPinModalOpen}
+        onClose={() => setIsPinModalOpen(false)}
+        partnerName={myPartner.name}
+        expectedPin={myExpectedPin}
+        onSuccess={handlePinSuccess}
+      />
+
+      {/* Real Hardware Face ID / Passkey Modal */}
       <PasskeyModal
         isOpen={isPasskeyModalOpen}
         onClose={() => setIsPasskeyModalOpen(false)}
@@ -482,8 +461,14 @@ export const LockScreen: React.FC<LockScreenProps> = ({
         partner2={coupleProfile.partner2}
         partner1Approved={partner1Approved}
         partner2Approved={partner2Approved}
-        onApprovePartner1={handleTogglePartner1}
-        onApprovePartner2={handleTogglePartner2}
+        onApprovePartner1={() => {
+          setPartner1Approved(true);
+          realtimeVault.broadcastMessage({ type: 'CONSENT_GRANTED', partnerId: 'partner1', senderDeviceId: 'sim', timestamp: Date.now() });
+        }}
+        onApprovePartner2={() => {
+          setPartner2Approved(true);
+          realtimeVault.broadcastMessage({ type: 'CONSENT_GRANTED', partnerId: 'partner2', senderDeviceId: 'sim', timestamp: Date.now() });
+        }}
         onUnlockVault={onUnlockVault}
       />
     </div>
