@@ -6,19 +6,23 @@ import {
   Lock, 
   KeyRound, 
   ScanFace, 
-  ShieldCheck, 
   Sparkles, 
-  ChevronRight, 
-  UserPlus, 
-  LogIn, 
   User, 
+  Mail,
+  Eye,
+  EyeOff,
   Fingerprint, 
   Shield, 
+  AlertCircle,
+  ArrowRight,
+  Sprout,
+  Send,
   RefreshCw
 } from 'lucide-react';
 import { CoupleProfile } from '../../types/vault';
 import { verifyPasskey, isPlatformAuthenticatorAvailable } from '../../utils/webAuthn';
 import { sound } from '../../utils/sound';
+import { storage } from '../../utils/storage';
 import { initialCoupleProfile } from '../../data/initialMemories';
 
 interface LoginPageProps {
@@ -27,652 +31,556 @@ interface LoginPageProps {
   onUpdateCoupleProfile?: (profile: CoupleProfile) => void;
 }
 
+const CAROUSEL_SLIDES = [
+  {
+    image: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=1200&q=85',
+    title: 'Stay focused.',
+    subtitle: 'Grow every day.',
+    theme: 'Two souls. One private haven.',
+  },
+  {
+    image: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=1200&q=85',
+    title: 'Zero-Knowledge.',
+    subtitle: 'Protected in hardware.',
+    theme: 'Shamir 2-of-2 Secret Sharing.',
+  },
+  {
+    image: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=1200&q=85',
+    title: 'Pure Connection.',
+    subtitle: 'Forever encrypted.',
+    theme: 'Unlocked only when both are present.',
+  },
+];
+
 export const LoginPage: React.FC<LoginPageProps> = ({
   coupleProfile,
   onLoginSuccess,
   onUpdateCoupleProfile,
 }) => {
-  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
-  const [selectedPartner, setSelectedPartner] = useState<'partner1' | 'partner2' | null>(null);
-  const [pin, setPin] = useState('');
-  const [error, setError] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
-  const [biometricLoading, setBiometricLoading] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [activeSlide, setActiveSlide] = useState(0);
 
-  // Sign Up / Create Account Form State
-  const [signUpData, setSignUpData] = useState({
-    yourName: '',
-    partnerName: '',
-    vaultName: '',
-    anniversaryDate: new Date().toISOString().split('T')[0],
-    yourPin: '',
-    partnerPin: '',
-    biometricType: 'Face ID' as 'Face ID' | 'Touch ID',
-  });
-  const [isGeneratingKeys, setIsGeneratingKeys] = useState(false);
-  const [keyGenStep, setKeyGenStep] = useState('');
+  // Form State
+  const [emailOrUsername, setEmailOrUsername] = useState('aarav@bondlock.vault');
+  const [passwordOrPin, setPasswordOrPin] = useState('1404');
+  const [showPassword, setShowPassword] = useState(false);
+
+  // Sign Up Additional Fields
+  const [partnerName, setPartnerName] = useState('Ananya');
+  const [partnerPin, setPartnerPin] = useState('2512');
+  const [vaultName, setVaultName] = useState('Our Secret Sanctuary');
+
+  const [errorMessage, setErrorMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const partner1 = coupleProfile.partner1;
   const partner2 = coupleProfile.partner2;
 
-  const activePartnerData = selectedPartner === 'partner1' ? partner1 : selectedPartner === 'partner2' ? partner2 : null;
-  const expectedPin = selectedPartner === 'partner1' 
-    ? (partner1.pin || '1404') 
-    : (partner2.pin || '2512');
-
-  const handleSelectPartner = (id: 'partner1' | 'partner2') => {
+  // Change carousel slide
+  const handleSelectSlide = (idx: number) => {
     sound.playSoftClick();
-    setSelectedPartner(id);
-    setPin('');
-    setError(false);
+    setActiveSlide(idx);
+  };
+
+  // Quick Select partner helper
+  const handleQuickSelect = (partnerId: 'partner1' | 'partner2') => {
+    sound.playSoftClick();
+    if (partnerId === 'partner1') {
+      setEmailOrUsername(partner1.name.toLowerCase() + '@bondlock.vault');
+      setPasswordOrPin(partner1.pin || '1404');
+    } else {
+      setEmailOrUsername(partner2.name.toLowerCase() + '@bondlock.vault');
+      setPasswordOrPin(partner2.pin || '2512');
+    }
     setErrorMessage('');
   };
 
-  const handlePinDigit = (digit: string) => {
+  // Submit Handler (Works for both Sign In and Sign Up)
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     sound.playSoftClick();
-    if (pin.length < 4) {
-      const nextPin = pin + digit;
-      setPin(nextPin);
-      setError(false);
-      setErrorMessage('');
+    setErrorMessage('');
 
-      if (nextPin.length === 4) {
-        if (nextPin === expectedPin || nextPin === '1234') {
-          sound.playPartnerApproved();
-          setTimeout(() => {
-            onLoginSuccess(selectedPartner!);
-          }, 300);
-        } else {
-          sound.playPanicLock();
-          setError(true);
-          setErrorMessage('Incorrect PIN. Please try again.');
-          setTimeout(() => {
-            setPin('');
-            setError(false);
-          }, 800);
-        }
+    const query = emailOrUsername.trim().toLowerCase();
+    const pin = passwordOrPin.trim();
+
+    if (!query) {
+      setErrorMessage('Please enter your email address or username.');
+      sound.playPanicLock();
+      return;
+    }
+
+    if (!pin) {
+      setErrorMessage('Please enter your security PIN or password.');
+      sound.playPanicLock();
+      return;
+    }
+
+    if (isSignUp) {
+      // SIGN UP FLOW
+      setIsSubmitting(true);
+      await new Promise((r) => setTimeout(r, 600));
+
+      const yourName = query.includes('@') ? query.split('@')[0] : query;
+      const capYourName = yourName.charAt(0).toUpperCase() + yourName.slice(1);
+      const capPartnerName = partnerName.trim() || 'Partner';
+
+      const share1 = 'SHARE-0x' + Math.random().toString(16).substring(2, 8).toUpperCase();
+      const share2 = 'SHARE-0x' + Math.random().toString(16).substring(2, 8).toUpperCase();
+
+      const newProfile: CoupleProfile = {
+        partner1: {
+          id: 'partner1',
+          name: capYourName,
+          avatar: CAROUSEL_SLIDES[0].image,
+          role: `${capYourName} • Key Share 1`,
+          biometricType: 'Face ID',
+          deviceInfo: 'Enclave Secured Phone',
+          keyShareId: share1,
+          pin: pin,
+        },
+        partner2: {
+          id: 'partner2',
+          name: capPartnerName,
+          avatar: CAROUSEL_SLIDES[1].image,
+          role: `${capPartnerName} • Key Share 2`,
+          biometricType: 'Touch ID',
+          deviceInfo: 'Partner Device',
+          keyShareId: share2,
+          pin: partnerPin || '2512',
+        },
+        anniversaryDate: new Date().toISOString().split('T')[0],
+        vaultName: vaultName.trim() || `${capYourName} & ${capPartnerName}’s Vault`,
+      };
+
+      // Save to storage
+      storage.saveAccount({
+        email: query,
+        username: yourName,
+        pin: pin,
+        role: 'partner1',
+        profile: newProfile,
+      });
+
+      if (onUpdateCoupleProfile) {
+        onUpdateCoupleProfile(newProfile);
       }
+
+      setIsSubmitting(false);
+      sound.playVaultUnlocked();
+      try {
+        confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
+      } catch (e) {}
+
+      onLoginSuccess('partner1');
+      return;
+    }
+
+    // SIGN IN FLOW
+    const accounts = storage.getAccounts();
+    const matchedAccount = accounts.find(
+      (acc) =>
+        acc.username.toLowerCase() === query ||
+        acc.email.toLowerCase() === query ||
+        acc.profile.partner1.name.toLowerCase() === query ||
+        acc.profile.partner2.name.toLowerCase() === query
+    );
+
+    const isP1 =
+      query.includes('aarav') ||
+      query === partner1.name.toLowerCase() ||
+      query === 'partner1' ||
+      (matchedAccount && matchedAccount.role === 'partner1');
+
+    const isP2 =
+      query.includes('ananya') ||
+      query === partner2.name.toLowerCase() ||
+      query === 'partner2' ||
+      (matchedAccount && matchedAccount.role === 'partner2');
+
+    let expectedPin = '';
+    let targetRole: 'partner1' | 'partner2' = 'partner1';
+
+    if (isP1) {
+      expectedPin = partner1.pin || '1404';
+      targetRole = 'partner1';
+    } else if (isP2) {
+      expectedPin = partner2.pin || '2512';
+      targetRole = 'partner2';
+    } else if (matchedAccount) {
+      expectedPin = matchedAccount.pin;
+      targetRole = matchedAccount.role;
+    } else {
+      expectedPin = partner1.pin || '1404';
+      targetRole = 'partner1';
+    }
+
+    if (pin === expectedPin || pin === '1234') {
+      if (matchedAccount && onUpdateCoupleProfile) {
+        onUpdateCoupleProfile(matchedAccount.profile);
+      }
+
+      sound.playPartnerApproved();
+      try {
+        confetti({ particleCount: 60, spread: 60, origin: { y: 0.6 } });
+      } catch (e) {}
+
+      setTimeout(() => {
+        onLoginSuccess(targetRole);
+      }, 300);
+    } else {
+      sound.playPanicLock();
+      setErrorMessage(`Incorrect PIN for "${emailOrUsername}". Default: Aarav is 1404, Ananya is 2512 (or 1234).`);
     }
   };
 
-  const handleFaceIDLogin = async () => {
-    if (!selectedPartner) return;
+  // Hardware Biometric / Apple Login
+  const handleAppleOrBiometric = async () => {
     sound.playBiometricScan();
-    setBiometricLoading(true);
-
-    const hasHardware = await isPlatformAuthenticatorAvailable();
-    if (hasHardware) {
-      const auth = await verifyPasskey(selectedPartner);
-      setBiometricLoading(false);
+    const isAvail = await isPlatformAuthenticatorAvailable();
+    if (isAvail) {
+      const auth = await verifyPasskey('partner1');
       if (auth.success) {
         sound.playVaultUnlocked();
-        onLoginSuccess(selectedPartner);
+        onLoginSuccess('partner1');
         return;
       }
     }
-
-    setBiometricLoading(false);
-    setError(true);
-    setErrorMessage('Biometric verification failed. Please enter PIN.');
-    setTimeout(() => setError(false), 2000);
+    setErrorMessage('Hardware Face ID not verified. Please enter your 4-digit PIN.');
   };
 
-  const handleCreateAccount = async (e: React.FormEvent) => {
-    e.preventDefault();
-    sound.playSoftClick();
-
-    if (!signUpData.yourName.trim() || !signUpData.partnerName.trim()) {
-      setError(true);
-      setErrorMessage('Please enter both your name and partner’s name.');
-      return;
-    }
-
-    if (signUpData.yourPin.length !== 4 || signUpData.partnerPin.length !== 4) {
-      setError(true);
-      setErrorMessage('Both security PINs must be exactly 4 digits.');
-      return;
-    }
-
-    setError(false);
-    setErrorMessage('');
-    setIsGeneratingKeys(true);
-
-    // Cryptographic Key Generation Simulation
-    setKeyGenStep('Generating 256-bit AES Master Vault Key...');
-    await new Promise((r) => setTimeout(r, 600));
-
-    setKeyGenStep('Computing (2, 2) Shamir Secret Sharing polynomial split...');
-    await new Promise((r) => setTimeout(r, 700));
-
-    setKeyGenStep('Enrolling biometric credentials into Secure Enclave...');
-    await new Promise((r) => setTimeout(r, 600));
-
-    const share1Hex = 'SHARE-0x' + Math.random().toString(16).substring(2, 8).toUpperCase();
-    const share2Hex = 'SHARE-0x' + Math.random().toString(16).substring(2, 8).toUpperCase();
-
-    const newProfile: CoupleProfile = {
-      partner1: {
-        id: 'partner1',
-        name: signUpData.yourName.trim(),
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
-        role: `${signUpData.yourName.trim()} • Key Share 1`,
-        biometricType: signUpData.biometricType,
-        deviceInfo: 'Enclave Secure Phone',
-        keyShareId: share1Hex,
-        pin: signUpData.yourPin,
-      },
-      partner2: {
-        id: 'partner2',
-        name: signUpData.partnerName.trim(),
-        avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=400&q=80',
-        role: `${signUpData.partnerName.trim()} • Key Share 2`,
-        biometricType: signUpData.biometricType === 'Face ID' ? 'Touch ID' : 'Face ID',
-        deviceInfo: 'Partner Paired Device',
-        keyShareId: share2Hex,
-        pin: signUpData.partnerPin,
-      },
-      anniversaryDate: signUpData.anniversaryDate || '2025-01-01',
-      vaultName: signUpData.vaultName.trim() || `${signUpData.yourName.trim()} & ${signUpData.partnerName.trim()}’s Sanctuary`,
-    };
-
-    if (onUpdateCoupleProfile) {
-      onUpdateCoupleProfile(newProfile);
-    }
-
-    setIsGeneratingKeys(false);
-    sound.playVaultUnlocked();
-    try {
-      confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
-    } catch (e) {}
-
-    // Automatically log in as Partner 1 (creator)
-    onLoginSuccess('partner1');
-  };
-
-  const handleResetToDemo = () => {
+  const handleResetDemo = () => {
     sound.playSoftClick();
     if (onUpdateCoupleProfile) {
       onUpdateCoupleProfile(initialCoupleProfile);
     }
-    setSelectedPartner(null);
-    setPin('');
-    setAuthMode('signin');
+    setEmailOrUsername('aarav@bondlock.vault');
+    setPasswordOrPin('1404');
+    setErrorMessage('');
+    setIsSignUp(false);
   };
 
   return (
-    <div className="min-h-full flex flex-col justify-between p-4 sm:p-6 ambient-app-canvas text-stone-200 select-none">
+    <div className="min-h-screen w-full bg-[#0A020D] flex items-center justify-center p-3 sm:p-6 md:p-10 font-sans selection:bg-[#FF2E93] selection:text-white select-none">
       
-      {/* Brand Header */}
-      <div className="flex flex-col items-center text-center pt-1">
-        <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-[#FF2E93] via-[#E11D74] to-[#A855F7] flex items-center justify-center text-white shadow-pink-glow mb-2">
-          <Heart className="w-5 h-5 fill-white" />
+      {/* Central Split-Screen Card */}
+      <div className="w-full max-w-5xl xl:max-w-6xl min-h-[640px] md:h-[86vh] max-h-[820px] rounded-[36px] overflow-hidden shadow-2xl border border-white/10 flex flex-col md:flex-row relative bg-[#120317]">
+        
+        {/* ================= LEFT HALF: High-Fashion Aesthetic Portrait ================= */}
+        <div className="relative w-full md:w-1/2 h-64 sm:h-80 md:h-full overflow-hidden bg-black shrink-0">
+          <AnimatePresence mode="wait">
+            <motion.img
+              key={activeSlide}
+              src={CAROUSEL_SLIDES[activeSlide].image}
+              alt="Couples Vault Aesthetic"
+              initial={{ opacity: 0, scale: 1.05 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.6 }}
+              className="w-full h-full object-cover object-center filter brightness-[0.92]"
+            />
+          </AnimatePresence>
+
+          {/* Warm Amber/Pink Ambient Gradient Overlay */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20 pointer-events-none" />
+
+          {/* Floating Frosted Glass Badge in Bottom-Left */}
+          <motion.div
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="absolute bottom-5 left-5 z-20 bg-black/60 backdrop-blur-md border border-white/15 rounded-2xl p-3 pr-4 flex items-center gap-3 text-white shadow-xl max-w-[240px]"
+          >
+            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-[#FF2E93] to-[#FBA1B7] flex items-center justify-center text-white shrink-0 shadow-sm">
+              <Sprout className="w-4 h-4 text-white" />
+            </div>
+            <div>
+              <div className="text-xs font-bold leading-tight text-white tracking-wide">
+                {CAROUSEL_SLIDES[activeSlide].title}
+              </div>
+              <div className="text-[11px] text-stone-300 font-sans leading-tight mt-0.5">
+                {CAROUSEL_SLIDES[activeSlide].subtitle}
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Center Seam Capsule with Carousel Dots (Visible on Desktop) */}
+          <div className="hidden md:flex absolute -right-6 top-1/2 -translate-y-1/2 z-30 bg-[#0A020D] rounded-full px-3 py-1.5 items-center gap-2 border border-white/15 shadow-2xl">
+            {CAROUSEL_SLIDES.map((_, idx) => (
+              <button
+                key={idx}
+                onClick={() => handleSelectSlide(idx)}
+                className={`transition-all rounded-full ${
+                  activeSlide === idx
+                    ? 'w-6 h-2 bg-white'
+                    : 'w-2 h-2 bg-white/40 hover:bg-white/70'
+                }`}
+                title={`Slide ${idx + 1}`}
+              />
+            ))}
+          </div>
         </div>
 
-        <h1 className="font-sans text-2xl font-bold tracking-tight text-white flex items-center gap-2">
-          <span>BondLock</span>
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#FF2E93]/20 text-[#FF4D9D] font-mono border border-[#FF2E93]/30">
-            v2.4
-          </span>
-        </h1>
-        <p className="text-xs text-stone-400 font-sans mt-0.5 max-w-xs">
-          Couples’ Zero-Knowledge 2-of-2 Hardware Encrypted Vault
-        </p>
-
-        {/* Auth Mode Segmented Control (Sign In vs Create Account) */}
-        {!selectedPartner && !isGeneratingKeys && (
-          <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-white/5 border border-white/10 mt-3.5 max-w-[280px] w-full">
-            <button
-              onClick={() => {
-                sound.playSoftClick();
-                setAuthMode('signin');
-                setError(false);
-              }}
-              className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                authMode === 'signin'
-                  ? 'bg-gradient-to-r from-[#FF2E93] to-[#A855F7] text-white shadow-pink-glow'
-                  : 'text-stone-400 hover:text-white'
-              }`}
-            >
-              <LogIn className="w-3.5 h-3.5" />
-              <span>Sign In</span>
-            </button>
-            <button
-              onClick={() => {
-                sound.playSoftClick();
-                setAuthMode('signup');
-                setError(false);
-              }}
-              className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                authMode === 'signup'
-                  ? 'bg-gradient-to-r from-[#FF2E93] to-[#A855F7] text-white shadow-pink-glow'
-                  : 'text-stone-400 hover:text-white'
-              }`}
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              <span>Create Account</span>
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Main Content Area */}
-      <div className="my-auto py-3 w-full max-w-sm mx-auto">
-        <AnimatePresence mode="wait">
+        {/* ================= RIGHT HALF: Pink-Themed Auth Form ================= */}
+        <div className="w-full md:w-1/2 flex flex-col justify-between p-6 sm:p-10 md:p-12 lg:p-14 bg-gradient-to-br from-[#FFF5F8] via-[#FED7E2] to-[#FBA1B7] text-[#1E0727] overflow-y-auto">
           
-          {/* VIEW 1: SIGN IN MODE - STEP 1: Select Your Identity */}
-          {authMode === 'signin' && !selectedPartner && (
-            <motion.div
-              key="select-identity"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              className="space-y-3.5"
-            >
-              <div className="text-center mb-3">
-                <span className="px-3 py-0.5 rounded-full bg-[#FF2E93]/15 text-[#FF4D9D] text-[10px] font-mono border border-[#FF2E93]/30 uppercase tracking-wider font-semibold">
-                  Identity Verification
-                </span>
-                <h2 className="font-sans text-lg font-bold text-white mt-1.5">
-                  Who is logging in?
-                </h2>
-                <p className="text-xs text-stone-400 mt-0.5">
-                  Select your profile on this device to decrypt your key share
-                </p>
+          {/* Top Switcher (Already have an account? Log In / Sign Up) */}
+          <div className="flex items-center justify-between text-xs mb-4">
+            <div className="flex items-center gap-1.5">
+              <div className="w-6 h-6 rounded-full bg-[#1E0727] flex items-center justify-center text-white">
+                <Heart className="w-3.5 h-3.5 fill-[#FF2E93] text-[#FF2E93]" />
               </div>
+              <span className="font-bold text-[#1E0727] tracking-wider uppercase text-[11px] font-mono">
+                BondLock
+              </span>
+            </div>
 
-              {/* Partner 1 Card */}
-              <motion.div
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => handleSelectPartner('partner1')}
-                className="glass-card-reference rounded-2xl p-3.5 cursor-pointer flex items-center justify-between border border-white/10 hover:border-[#FF2E93]/50 transition-all bg-[#1E0727]"
+            <div className="text-stone-700 text-xs">
+              {isSignUp ? (
+                <>
+                  Already have an account?{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sound.playSoftClick();
+                      setIsSignUp(false);
+                      setErrorMessage('');
+                    }}
+                    className="font-bold text-[#1E0727] hover:text-[#FF2E93] underline transition-colors"
+                  >
+                    Log In
+                  </button>
+                </>
+              ) : (
+                <>
+                  Don't have an account?{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sound.playSoftClick();
+                      setIsSignUp(true);
+                      setErrorMessage('');
+                    }}
+                    className="font-bold text-[#1E0727] hover:text-[#FF2E93] underline transition-colors"
+                  >
+                    Sign Up
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Heading & Subtitle */}
+          <div className="my-auto py-2">
+            <h1 className="font-sans text-3xl sm:text-4xl font-extrabold tracking-tight text-[#1E0727]">
+              {isSignUp ? 'Build Your Flow' : 'Unlock Your Sanctuary'}
+            </h1>
+            <p className="text-xs sm:text-sm text-stone-700 mt-1.5 max-w-sm">
+              {isSignUp
+                ? 'Create your account and get started with a clear mind'
+                : 'Enter your credentials to decrypt your 2-of-2 partner key share'}
+            </p>
+
+            {/* Quick Demo Selector Chips (For instant testing without typing) */}
+            <div className="flex items-center gap-2 mt-4 mb-2">
+              <span className="text-[10px] font-mono text-stone-600 uppercase tracking-wider">
+                Demo Quick-Fill:
+              </span>
+              <button
+                type="button"
+                onClick={() => handleQuickSelect('partner1')}
+                className="px-2.5 py-1 rounded-full bg-white/70 hover:bg-white text-[11px] font-bold text-[#1E0727] border border-[#F472B6]/40 shadow-xs transition-all flex items-center gap-1"
               >
-                <div className="flex items-center gap-3">
-                  <div className="relative w-13 h-13 rounded-full p-0.5 bg-gradient-to-tr from-[#FF2E93] to-[#A855F7]">
-                    <img
-                      src={partner1.avatar}
-                      alt={partner1.name}
-                      className="w-full h-full object-cover rounded-full"
-                    />
-                    <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emeraldGlow border-2 border-[#120317]" />
-                  </div>
-
-                  <div>
-                    <h3 className="font-sans text-base font-bold text-white flex items-center gap-1.5">
-                      <span>{partner1.name}</span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#FF2E93]/20 text-[#FF4D9D] font-mono">
-                        Partner A
-                      </span>
-                    </h3>
-                    <p className="text-[10px] text-stone-400 font-mono mt-0.5">
-                      {partner1.keyShareId} • {partner1.biometricType}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-stone-300">
-                  <ChevronRight className="w-4 h-4" />
-                </div>
-              </motion.div>
-
-              {/* Partner 2 Card */}
-              <motion.div
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => handleSelectPartner('partner2')}
-                className="glass-card-reference rounded-2xl p-3.5 cursor-pointer flex items-center justify-between border border-white/10 hover:border-[#A855F7]/50 transition-all bg-[#1E0727]"
+                <span>Aarav</span>
+                <span className="text-[9px] text-[#FF2E93] font-mono">(1404)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleQuickSelect('partner2')}
+                className="px-2.5 py-1 rounded-full bg-white/70 hover:bg-white text-[11px] font-bold text-[#1E0727] border border-[#F472B6]/40 shadow-xs transition-all flex items-center gap-1"
               >
-                <div className="flex items-center gap-3">
-                  <div className="relative w-13 h-13 rounded-full p-0.5 bg-gradient-to-tr from-[#A855F7] to-[#FF4D9D]">
-                    <img
-                      src={partner2.avatar}
-                      alt={partner2.name}
-                      className="w-full h-full object-cover rounded-full"
-                    />
-                    <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emeraldGlow border-2 border-[#120317]" />
-                  </div>
+                <span>Ananya</span>
+                <span className="text-[9px] text-[#A855F7] font-mono">(2512)</span>
+              </button>
+            </div>
 
-                  <div>
-                    <h3 className="font-sans text-base font-bold text-white flex items-center gap-1.5">
-                      <span>{partner2.name}</span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#A855F7]/20 text-[#C084FC] font-mono">
-                        Partner B
-                      </span>
-                    </h3>
-                    <p className="text-[10px] text-stone-400 font-mono mt-0.5">
-                      {partner2.keyShareId} • {partner2.biometricType}
-                    </p>
-                  </div>
+            {/* Auth Form */}
+            <form onSubmit={handleSubmit} className="space-y-3 mt-3">
+              {/* Input 1: Email Address / Username */}
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-stone-600">
+                  <Mail className="w-4 h-4" />
                 </div>
-
-                <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-stone-300">
-                  <ChevronRight className="w-4 h-4" />
-                </div>
-              </motion.div>
-
-              {/* Create Account Link */}
-              <div className="text-center pt-2">
-                <button
-                  onClick={() => {
-                    sound.playSoftClick();
-                    setAuthMode('signup');
+                <input
+                  type="text"
+                  required
+                  placeholder="Email Address"
+                  value={emailOrUsername}
+                  onChange={(e) => {
+                    setEmailOrUsername(e.target.value);
+                    setErrorMessage('');
                   }}
-                  className="text-xs text-[#FF4D9D] hover:underline flex items-center justify-center gap-1.5 mx-auto font-medium"
-                >
-                  <UserPlus className="w-3.5 h-3.5" />
-                  <span>New couple? Create a custom vault account</span>
-                </button>
-              </div>
-            </motion.div>
-          )}
-
-          {/* VIEW 2: SIGN IN MODE - STEP 2: Authenticate Selected Partner */}
-          {authMode === 'signin' && selectedPartner && (
-            <motion.div
-              key="auth-pin"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="flex flex-col items-center"
-            >
-              {/* Selected Partner Header */}
-              <div className="relative w-18 h-18 rounded-full p-1 bg-gradient-to-tr from-[#FF2E93] to-[#A855F7] shadow-pink-glow mb-2">
-                <img
-                  src={activePartnerData?.avatar}
-                  alt={activePartnerData?.name}
-                  className="w-full h-full object-cover rounded-full"
+                  className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-white/60 border border-[#F472B6]/40 focus:border-[#1E0727] focus:bg-white text-[#1E0727] placeholder-stone-500 text-sm transition-all focus:outline-none shadow-xs"
                 />
               </div>
 
-              <div className="text-center">
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#FF2E93]/20 text-[#FF4D9D] font-mono">
-                  Logging in as
-                </span>
-                <h2 className="font-sans text-lg font-bold text-white mt-1">
-                  {activePartnerData?.name}
-                </h2>
-                <p className="text-xs text-stone-400 font-sans mt-0.5">
-                  Enter 4-digit PIN (Default: <code className="text-[#FF4D9D] font-mono">{expectedPin}</code> or <code className="text-stone-300 font-mono">1234</code>)
-                </p>
-              </div>
-
-              {/* PIN Indicator Dots */}
-              <div className={`flex items-center gap-3.5 my-3.5 ${error ? 'animate-bounce' : ''}`}>
-                {[0, 1, 2, 3].map((idx) => (
-                  <div
-                    key={idx}
-                    className={`w-3.5 h-3.5 rounded-full transition-all ${
-                      idx < pin.length
-                        ? error
-                          ? 'bg-panicRed scale-125'
-                          : 'bg-[#FF2E93] scale-125 shadow-pink-glow'
-                        : 'bg-white/20'
-                    }`}
-                  />
-                ))}
-              </div>
-
-              {error && (
-                <p className="text-xs text-panicRed font-mono mb-2 text-center">
-                  {errorMessage || 'Incorrect PIN or biometric failed.'}
-                </p>
-              )}
-
-              {/* Native Face ID 1-Tap Trigger Button */}
-              <button
-                onClick={handleFaceIDLogin}
-                disabled={biometricLoading}
-                className="w-full py-2 px-4 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-stone-200 text-xs font-semibold flex items-center justify-center gap-2 mb-3.5 transition-colors"
-              >
-                <ScanFace className="w-4 h-4 text-[#FF4D9D]" />
-                <span>{biometricLoading ? 'Verifying Hardware Passkey...' : 'Login with Face ID / Passkey'}</span>
-              </button>
-
-              {/* Touch Keypad */}
-              <div className="grid grid-cols-3 gap-2 w-full max-w-[220px]">
-                {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
-                  <button
-                    key={digit}
-                    onClick={() => handlePinDigit(digit)}
-                    className="w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 text-base font-bold text-white flex items-center justify-center transition-all mx-auto"
-                  >
-                    {digit}
-                  </button>
-                ))}
-                <div />
-                <button
-                  onClick={() => handlePinDigit('0')}
-                  className="w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 text-base font-bold text-white flex items-center justify-center transition-all mx-auto"
-                >
-                  0
-                </button>
-                <button
-                  onClick={() => setPin((prev) => prev.slice(0, -1))}
-                  className="w-12 h-12 rounded-full bg-white/5 hover:bg-white/15 text-xs text-stone-400 font-mono flex items-center justify-center transition-all mx-auto"
-                >
-                  ⌫
-                </button>
-              </div>
-
-              {/* Switch Partner Link */}
-              <button
-                onClick={() => setSelectedPartner(null)}
-                className="mt-3.5 text-xs text-stone-400 hover:text-white underline"
-              >
-                Not {activePartnerData?.name}? Switch user
-              </button>
-            </motion.div>
-          )}
-
-          {/* VIEW 3: CREATE ACCOUNT / SIGN UP MODE */}
-          {authMode === 'signup' && !isGeneratingKeys && (
-            <motion.div
-              key="create-account"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              className="space-y-3"
-            >
-              <div className="text-center mb-2">
-                <span className="px-3 py-0.5 rounded-full bg-[#A855F7]/15 text-[#C084FC] text-[10px] font-mono border border-[#A855F7]/30 uppercase tracking-wider font-semibold">
-                  New Couple Setup
-                </span>
-                <h2 className="font-sans text-base font-bold text-white mt-1">
-                  Create Your Couple Vault
-                </h2>
-                <p className="text-[11px] text-stone-400 mt-0.5">
-                  Generates 2-of-2 Shamir keys for both partners
-                </p>
-              </div>
-
-              <form onSubmit={handleCreateAccount} className="space-y-2.5">
-                {/* Your Name */}
-                <div>
-                  <label className="text-[11px] text-stone-300 font-medium flex items-center gap-1.5 mb-1">
-                    <User className="w-3.5 h-3.5 text-[#FF4D9D]" />
-                    <span>Your Name (Partner A)</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Aarav / Shiva"
-                    value={signUpData.yourName}
-                    onChange={(e) => setSignUpData({ ...signUpData, yourName: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/15 text-white placeholder-stone-500 text-xs focus:outline-none focus:border-[#FF2E93]"
-                  />
+              {/* Input 2: Password / Security PIN */}
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-stone-600">
+                  <Lock className="w-4 h-4" />
                 </div>
-
-                {/* Partner's Name */}
-                <div>
-                  <label className="text-[11px] text-stone-300 font-medium flex items-center gap-1.5 mb-1">
-                    <Heart className="w-3.5 h-3.5 text-[#A855F7]" />
-                    <span>Partner's Name (Partner B)</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Ananya"
-                    value={signUpData.partnerName}
-                    onChange={(e) => setSignUpData({ ...signUpData, partnerName: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/15 text-white placeholder-stone-500 text-xs focus:outline-none focus:border-[#A855F7]"
-                  />
-                </div>
-
-                {/* Vault Name */}
-                <div>
-                  <label className="text-[11px] text-stone-300 font-medium flex items-center gap-1.5 mb-1">
-                    <Lock className="w-3.5 h-3.5 text-stone-400" />
-                    <span>Vault Name</span>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Our Secret Sanctuary"
-                    value={signUpData.vaultName}
-                    onChange={(e) => setSignUpData({ ...signUpData, vaultName: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/15 text-white placeholder-stone-500 text-xs focus:outline-none focus:border-[#FF2E93]"
-                  />
-                </div>
-
-                {/* Security PINs for both partners */}
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  <div>
-                    <label className="text-[10px] text-stone-300 font-mono block mb-1">
-                      Your PIN (4-digit)
-                    </label>
-                    <input
-                      type="password"
-                      maxLength={4}
-                      required
-                      placeholder="e.g. 1404"
-                      value={signUpData.yourPin}
-                      onChange={(e) => setSignUpData({ ...signUpData, yourPin: e.target.value.replace(/\D/g, '') })}
-                      className="w-full px-3 py-1.5 rounded-xl bg-white/5 border border-white/15 text-white text-center font-mono text-xs tracking-widest focus:outline-none focus:border-[#FF2E93]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] text-stone-300 font-mono block mb-1">
-                      Partner PIN (4-digit)
-                    </label>
-                    <input
-                      type="password"
-                      maxLength={4}
-                      required
-                      placeholder="e.g. 2512"
-                      value={signUpData.partnerPin}
-                      onChange={(e) => setSignUpData({ ...signUpData, partnerPin: e.target.value.replace(/\D/g, '') })}
-                      className="w-full px-3 py-1.5 rounded-xl bg-white/5 border border-white/15 text-white text-center font-mono text-xs tracking-widest focus:outline-none focus:border-[#A855F7]"
-                    />
-                  </div>
-                </div>
-
-                {/* Biometric Type Selector */}
-                <div className="pt-1">
-                  <label className="text-[10px] text-stone-300 font-mono block mb-1">
-                    Preferred Hardware Biometric
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setSignUpData({ ...signUpData, biometricType: 'Face ID' })}
-                      className={`py-1.5 px-2 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 border transition-all ${
-                        signUpData.biometricType === 'Face ID'
-                          ? 'bg-[#FF2E93]/20 border-[#FF2E93] text-white'
-                          : 'bg-white/5 border-white/10 text-stone-400'
-                      }`}
-                    >
-                      <ScanFace className="w-3.5 h-3.5 text-[#FF4D9D]" />
-                      <span>Face ID</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSignUpData({ ...signUpData, biometricType: 'Touch ID' })}
-                      className={`py-1.5 px-2 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 border transition-all ${
-                        signUpData.biometricType === 'Touch ID'
-                          ? 'bg-[#A855F7]/20 border-[#A855F7] text-white'
-                          : 'bg-white/5 border-white/10 text-stone-400'
-                      }`}
-                    >
-                      <Fingerprint className="w-3.5 h-3.5 text-[#C084FC]" />
-                      <span>Touch ID</span>
-                    </button>
-                  </div>
-                </div>
-
-                {error && (
-                  <p className="text-xs text-panicRed font-mono text-center pt-1">
-                    {errorMessage}
-                  </p>
-                )}
-
-                {/* Submit Button */}
-                <button
-                  type="submit"
-                  className="w-full py-2.5 px-4 rounded-xl btn-neon-pink text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 shadow-pink-glow mt-3 hover:opacity-95 transition-all"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  <span>Generate Cryptographic Vault</span>
-                </button>
-              </form>
-
-              <div className="text-center pt-1">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  placeholder="Password"
+                  value={passwordOrPin}
+                  onChange={(e) => {
+                    setPasswordOrPin(e.target.value);
+                    setErrorMessage('');
+                  }}
+                  className="w-full pl-11 pr-11 py-3.5 rounded-2xl bg-white/60 border border-[#F472B6]/40 focus:border-[#1E0727] focus:bg-white text-[#1E0727] placeholder-stone-500 text-sm transition-all focus:outline-none shadow-xs"
+                />
                 <button
                   type="button"
-                  onClick={() => {
-                    sound.playSoftClick();
-                    setAuthMode('signin');
-                  }}
-                  className="text-xs text-stone-400 hover:text-white underline"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 pr-4 flex items-center text-stone-600 hover:text-black transition-colors"
                 >
-                  Already have an account? Sign In
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-            </motion.div>
-          )}
 
-          {/* VIEW 4: KEY GENERATION ANIMATION */}
-          {isGeneratingKeys && (
-            <motion.div
-              key="generating-keys"
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              className="flex flex-col items-center justify-center py-8 text-center"
-            >
-              <div className="relative w-20 h-20 rounded-full bg-gradient-to-tr from-[#FF2E93] to-[#A855F7] p-1 shadow-pink-glow mb-4 animate-spin">
-                <div className="w-full h-full bg-[#120317] rounded-full flex items-center justify-center">
-                  <Shield className="w-8 h-8 text-[#FF4D9D]" />
+              {/* Extra Partner fields in Sign Up mode */}
+              {isSignUp && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  className="space-y-2 pt-1"
+                >
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      required
+                      placeholder="Partner's Name"
+                      value={partnerName}
+                      onChange={(e) => setPartnerName(e.target.value)}
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/60 border border-[#F472B6]/40 text-[#1E0727] placeholder-stone-500 text-xs focus:outline-none focus:border-[#1E0727]"
+                    />
+                    <input
+                      type="password"
+                      maxLength={4}
+                      required
+                      placeholder="Partner PIN (4-digit)"
+                      value={partnerPin}
+                      onChange={(e) => setPartnerPin(e.target.value)}
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/60 border border-[#F472B6]/40 text-[#1E0727] placeholder-stone-500 text-xs focus:outline-none focus:border-[#1E0727]"
+                    />
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Error Message Alert */}
+              {errorMessage && (
+                <div className="p-2.5 rounded-xl bg-panicRed/15 border border-panicRed/40 text-panicRed text-xs font-mono flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{errorMessage}</span>
                 </div>
+              )}
+
+              {/* Primary CTA Button (Solid Dark Black / Mulberry Pill) */}
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full py-3.5 px-6 rounded-2xl bg-[#1E0727] hover:bg-[#FF2E93] active:scale-[0.99] text-white font-semibold text-sm flex items-center justify-center gap-2 transition-all shadow-md hover:shadow-pink-glow mt-1"
+              >
+                <span>{isSubmitting ? 'Authenticating...' : isSignUp ? 'Sign Up' : 'Sign In'}</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </form>
+
+            {/* Divider: "or continue with" */}
+            <div className="relative my-4 text-center">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-[#1E0727]/15" />
               </div>
+              <span className="relative px-3 bg-gradient-to-r from-transparent via-[#FED7E2] to-transparent text-[11px] font-sans text-stone-600 uppercase tracking-wider">
+                or continue with
+              </span>
+            </div>
 
-              <h3 className="font-sans text-base font-bold text-white mb-2">
-                Creating Zero-Knowledge Vault...
-              </h3>
-              <p className="text-xs text-[#FF4D9D] font-mono animate-pulse max-w-xs">
-                {keyGenStep}
-              </p>
-            </motion.div>
-          )}
+            {/* 3 Social / Quick-Auth Buttons */}
+            <div className="grid grid-cols-3 gap-2.5">
+              {/* Google */}
+              <button
+                type="button"
+                onClick={() => handleQuickSelect('partner1')}
+                className="py-2.5 px-3 rounded-2xl bg-white/70 hover:bg-white border border-[#F472B6]/30 text-[#1E0727] text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-2xs hover:shadow-xs"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                  />
+                </svg>
+                <span>Google</span>
+              </button>
 
-        </AnimatePresence>
+              {/* Apple / Face ID */}
+              <button
+                type="button"
+                onClick={handleAppleOrBiometric}
+                className="py-2.5 px-3 rounded-2xl bg-white/70 hover:bg-white border border-[#F472B6]/30 text-[#1E0727] text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-2xs hover:shadow-xs"
+              >
+                <svg className="w-4 h-4 fill-current" viewBox="0 0 170 170">
+                  <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.69-3.08-7.7-7.91-12.03-14.49-6.03-9.14-10.82-20.08-14.37-32.8-3.55-12.72-5.32-24.52-5.32-35.4 0-14.6 3.69-26.65 11.08-36.14 7.39-9.49 16.5-14.36 27.34-14.61 5.35 0 11.26 1.41 17.73 4.23 6.47 2.82 10.59 4.31 12.35 4.47 1.45 0 5.86-1.61 13.23-4.83 7.37-3.22 13.54-4.53 18.52-3.92 13.73 1.09 24.32 6.51 31.78 16.27-12.28 7.4-18.3 17.43-18.06 30.1.24 9.9 4.08 18.15 11.51 24.76 7.43 6.61 16.32 10.37 26.67 11.27-2.3 7.08-5.29 14.54-8.97 22.37zM119.22 31.84c0-7.2 2.66-14.07 7.99-20.61 5.33-6.54 11.97-10.65 19.92-12.33.24 1.46.36 2.79.36 3.99 0 7.23-2.85 14.12-8.55 20.67-5.7 6.55-12.44 10.45-20.22 11.7-.24-1.34-.36-2.48-.36-3.42z" />
+                </svg>
+                <span>Apple</span>
+              </button>
+
+              {/* Telegram / Passkey */}
+              <button
+                type="button"
+                onClick={() => handleQuickSelect('partner2')}
+                className="py-2.5 px-3 rounded-2xl bg-white/70 hover:bg-white border border-[#F472B6]/30 text-[#1E0727] text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-2xs hover:shadow-xs"
+              >
+                <Send className="w-3.5 h-3.5 text-[#0088cc]" />
+                <span>Telegram</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Footer Terms & Demo Reset */}
+          <div className="pt-3 border-t border-[#1E0727]/10 flex flex-col items-center text-center gap-1">
+            <p className="text-[11px] text-stone-600 font-sans">
+              By signing up, you agree to our{' '}
+              <span className="font-bold text-[#1E0727] hover:underline cursor-pointer">Terms of Service</span> and{' '}
+              <span className="font-bold text-[#1E0727] hover:underline cursor-pointer">Privacy Policy</span>
+            </p>
+
+            <button
+              type="button"
+              onClick={handleResetDemo}
+              className="text-[10px] text-stone-500 hover:text-[#1E0727] flex items-center gap-1 font-mono mt-1 transition-colors"
+            >
+              <RefreshCw className="w-2.5 h-2.5" />
+              <span>Reset to Demo Couple (Aarav & Ananya)</span>
+            </button>
+          </div>
+
+        </div>
+
       </div>
 
-      {/* Security & Demo Reset Footer */}
-      <div className="pt-2 border-t border-white/5 flex flex-col items-center gap-2">
-        <p className="text-[10px] text-stone-500 font-mono flex items-center justify-center gap-1">
-          <ShieldCheck className="w-3.5 h-3.5 text-[#FF4D9D]" />
-          <span>AES-256-GCM • Secure Enclave • 2-of-2 SSS</span>
-        </p>
-
-        {/* Quick Reset to Demo Accounts (Aarav & Ananya) */}
-        <button
-          onClick={handleResetToDemo}
-          className="text-[10px] text-stone-500 hover:text-stone-300 flex items-center gap-1 font-mono transition-colors"
-        >
-          <RefreshCw className="w-2.5 h-2.5" />
-          <span>Reset to Demo Couple (Aarav & Ananya)</span>
-        </button>
-      </div>
     </div>
   );
 };

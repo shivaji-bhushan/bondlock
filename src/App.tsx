@@ -410,6 +410,17 @@ export function App() {
     );
   };
 
+  // Render full-width split-screen LoginPage upfront before entering device frame
+  if (!authenticatedUser) {
+    return (
+      <LoginPage
+        coupleProfile={coupleProfile}
+        onLoginSuccess={handleLoginSuccess}
+        onUpdateCoupleProfile={handleSaveProfile}
+      />
+    );
+  }
+
   return (
     <DeviceFrame
       partner1Name={coupleProfile.partner1.name}

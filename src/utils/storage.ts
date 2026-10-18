@@ -85,4 +85,54 @@ export const storage = {
     localStorage.removeItem(STORAGE_KEYS.MEMORIES);
     localStorage.removeItem(STORAGE_KEYS.IS_FROZEN);
   },
+
+  getAccounts(): Array<{
+    email: string;
+    username: string;
+    pin: string;
+    role: 'partner1' | 'partner2';
+    profile: CoupleProfile;
+  }> {
+    try {
+      const data = localStorage.getItem('bondlock_registered_accounts_v1');
+      if (data) return JSON.parse(data);
+    } catch (e) {}
+    return [
+      {
+        email: 'aarav@bondlock.vault',
+        username: 'aarav',
+        pin: '1404',
+        role: 'partner1',
+        profile: initialCoupleProfile,
+      },
+      {
+        email: 'ananya@bondlock.vault',
+        username: 'ananya',
+        pin: '2512',
+        role: 'partner2',
+        profile: initialCoupleProfile,
+      },
+    ];
+  },
+
+  saveAccount(newAccount: {
+    email: string;
+    username: string;
+    pin: string;
+    role: 'partner1' | 'partner2';
+    profile: CoupleProfile;
+  }) {
+    try {
+      const accounts = this.getAccounts();
+      const filtered = accounts.filter(
+        (a) =>
+          a.username.toLowerCase() !== newAccount.username.toLowerCase() &&
+          a.email.toLowerCase() !== newAccount.email.toLowerCase()
+      );
+      filtered.push(newAccount);
+      localStorage.setItem('bondlock_registered_accounts_v1', JSON.stringify(filtered));
+    } catch (e) {
+      console.error('Failed to save account', e);
+    }
+  },
 };

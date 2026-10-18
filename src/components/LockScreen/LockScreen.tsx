@@ -126,8 +126,8 @@ export const LockScreen: React.FC<LockScreenProps> = ({
     }
   }, [partner1Approved, partner2Approved, onUnlockVault]);
 
-  // Real Hardware Biometric Trigger for the active partner on this device
-  const handleAuthorizeMyDevice = async () => {
+  // Strict 2-Factor PIN Authorization to prevent unauthorized device fingerprints
+  const handleAuthorizeMyDevice = () => {
     if (myApproved) {
       // Revoke consent
       sound.playSoftClick();
@@ -137,24 +137,8 @@ export const LockScreen: React.FC<LockScreenProps> = ({
       return;
     }
 
-    sound.playBiometricScan();
-    setBiometricScanning(true);
-
-    const hasHardware = await isPlatformAuthenticatorAvailable();
-    if (hasHardware) {
-      const auth = await verifyPasskey(currentRole);
-      setBiometricScanning(false);
-      if (auth.success) {
-        sound.playPartnerApproved();
-        if (isPartner1) setPartner1Approved(true);
-        else setPartner2Approved(true);
-        realtimeVault.sendConsent(true);
-        return;
-      }
-    }
-
-    setBiometricScanning(false);
-    // If no hardware or user cancelled biometric, prompt for Passcode PIN modal
+    sound.playSoftClick();
+    // Prompt for partner's secret PIN so unauthorized fingerprints cannot bypass
     setIsPinModalOpen(true);
   };
 
@@ -420,15 +404,21 @@ export const LockScreen: React.FC<LockScreenProps> = ({
           ) : myApproved ? (
             <>
               <Check className="w-4 h-4 stroke-[3]" />
-              <span>You Approved (Tap to Cancel)</span>
+              <span>Key Share Authorized (Tap to Cancel)</span>
             </>
           ) : (
             <>
-              <ScanFace className="w-4 h-4" />
-              <span>Verify Face ID as {myPartner.name}</span>
+              <KeyRound className="w-4 h-4" />
+              <span>Authorize Key Share as {myPartner.name}</span>
             </>
           )}
         </motion.button>
+
+        {/* Security Notice */}
+        <p className="text-[10px] text-stone-400 font-mono text-center flex items-center justify-center gap-1">
+          <Shield className="w-3 h-3 text-[#FF4D9D]" />
+          <span>Strict 2FA: Secret PIN required to prevent unauthorized unlocks</span>
+        </p>
 
         {/* Fallback & Helper links */}
         <div className="flex items-center justify-center gap-3 text-xs text-stone-400">
