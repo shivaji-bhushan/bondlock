@@ -8,6 +8,7 @@ export interface Partner {
   biometricType: 'Face ID' | 'Touch ID';
   deviceInfo: string;
   keyShareId: string;
+  pin?: string;
 }
 
 export interface Memory {

@@ -9,6 +9,7 @@ export const initialCoupleProfile: CoupleProfile = {
     biometricType: 'Face ID',
     deviceInfo: 'iPhone 16 Pro • Enclave Secure',
     keyShareId: 'SHARE-0x49FA81',
+    pin: '1404',
   },
   partner2: {
     id: 'partner2',
@@ -18,6 +19,7 @@ export const initialCoupleProfile: CoupleProfile = {
     biometricType: 'Touch ID',
     deviceInfo: 'MacBook Pro / iPhone 15',
     keyShareId: 'SHARE-0x92BC38',
+    pin: '2512',
   },
   anniversaryDate: '2023-04-14',
   vaultName: 'Aarav & Ananya’s Sanctuary',

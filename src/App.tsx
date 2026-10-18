@@ -28,14 +28,8 @@ export function App() {
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 
-  // User Authentication & Identity State
-  const [authenticatedUser, setAuthenticatedUser] = useState<'partner1' | 'partner2' | null>(() => {
-    try {
-      const saved = localStorage.getItem('bondlock_auth_user');
-      if (saved === 'partner1' || saved === 'partner2') return saved;
-    } catch (e) {}
-    return null;
-  });
+  // User Authentication & Identity State (Always show login upfront on session start)
+  const [authenticatedUser, setAuthenticatedUser] = useState<'partner1' | 'partner2' | null>(null);
   const [isUserProfileOpen, setIsUserProfileOpen] = useState(false);
 
   // Real-time Room & Cross-Device Pairing State
@@ -194,6 +188,7 @@ export function App() {
         <LoginPage
           coupleProfile={coupleProfile}
           onLoginSuccess={handleLoginSuccess}
+          onUpdateCoupleProfile={handleSaveProfile}
         />
       );
     }

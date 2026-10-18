@@ -51,8 +51,10 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   const myApproved = isPartner1 ? partner1Approved : partner2Approved;
   const otherApproved = isPartner1 ? partner2Approved : partner1Approved;
 
-  // Expected PINs (Aarav: 1404, Ananya: 2512)
-  const myExpectedPin = isPartner1 ? '1404' : '2512';
+  // Dynamic PINs from couple profile (with defaults)
+  const myExpectedPin = isPartner1
+    ? (coupleProfile.partner1.pin || '1404')
+    : (coupleProfile.partner2.pin || '2512');
 
   // Subscribe to real-time events across physical devices
   useEffect(() => {
