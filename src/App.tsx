@@ -1,0 +1,353 @@
+import React, { useState, useEffect } from 'react';
+import { DeviceFrame, ViewMode } from './components/Layout/DeviceFrame';
+import { BottomNav, TabType } from './components/Layout/BottomNav';
+import { LockScreen } from './components/LockScreen/LockScreen';
+import { VaultFeed } from './components/Vault/VaultFeed';
+import { VaultExplore } from './components/Vault/VaultExplore';
+import { VaultLetters } from './components/Vault/VaultLetters';
+import { VaultProfile } from './components/Vault/VaultProfile';
+import { SecurityModal } from './components/Security/SecurityModal';
+import { PartnerSettingsModal } from './components/Security/PartnerSettingsModal';
+import { storage } from './utils/storage';
+import { Memory, CoupleProfile, SecuritySettings } from './types/vault';
+import { sound } from './utils/sound';
+import { ShieldAlert, KeyRound } from 'lucide-react';
+
+export function App() {
+  const [viewMode, setViewMode] = useState<ViewMode>('single');
+  const [activeTab, setActiveTab] = useState<TabType>('lock');
+  const [isUnlocked, setIsUnlocked] = useState(false);
+  const [isFrozen, setIsFrozen] = useState(() => storage.getIsFrozen());
+  const [memories, setMemories] = useState<Memory[]>(() => storage.getMemories());
+  const [coupleProfile, setCoupleProfile] = useState<CoupleProfile>(() => storage.getCoupleProfile());
+  const [securitySettings, setSecuritySettings] = useState<SecuritySettings>(() => storage.getSecuritySettings());
+
+  const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+
+  // Sync mute state on mount
+  useEffect(() => {
+    sound.setMuted(!securitySettings.soundEnabled);
+  }, [securitySettings.soundEnabled]);
+
+  const handleUnlockVault = () => {
+    if (isFrozen) return;
+    setIsUnlocked(true);
+    setActiveTab('home');
+  };
+
+  const handlePanicLock = () => {
+    setIsUnlocked(false);
+    setActiveTab('lock');
+  };
+
+  const handleSessionExpired = () => {
+    sound.playPanicLock();
+    setIsUnlocked(false);
+    setActiveTab('lock');
+  };
+
+  const handleAddMemory = (newMemory: Memory) => {
+    const updated = [newMemory, ...memories];
+    setMemories(updated);
+    storage.saveMemories(updated);
+  };
+
+  const handleDeleteMemory = (id: string) => {
+    const updated = memories.filter((m) => m.id !== id);
+    setMemories(updated);
+    storage.saveMemories(updated);
+  };
+
+  const handleSaveProfile = (profile: CoupleProfile) => {
+    setCoupleProfile(profile);
+    storage.saveCoupleProfile(profile);
+  };
+
+  const handleSaveSecuritySettings = (settings: SecuritySettings) => {
+    setSecuritySettings(settings);
+    storage.saveSecuritySettings(settings);
+  };
+
+  const handleFreezeVault = () => {
+    setIsFrozen(true);
+    setIsUnlocked(false);
+    storage.setFrozen(true);
+  };
+
+  const handleUnfreeze = () => {
+    sound.playSoftClick();
+    setIsFrozen(false);
+    storage.setFrozen(false);
+  };
+
+  const handleResetData = () => {
+    storage.resetVault();
+    setMemories(storage.getMemories());
+    setCoupleProfile(storage.getCoupleProfile());
+    setSecuritySettings(storage.getSecuritySettings());
+    setIsFrozen(false);
+    setIsUnlocked(false);
+    setActiveTab('lock');
+  };
+
+  // Render the current view in Single Device Mode
+  const renderCurrentScreen = () => {
+    if (isFrozen) {
+      return (
+        <div className="min-h-full flex flex-col items-center justify-center p-6 text-center select-none ambient-app-canvas text-stone-200">
+          <div className="w-20 h-20 rounded-full bg-panicRed/15 border-2 border-panicRed/40 flex items-center justify-center text-panicRed mb-6 shadow-panic-glow animate-pulse">
+            <ShieldAlert className="w-10 h-10" />
+          </div>
+
+          <span className="px-3 py-1 rounded-full bg-panicRed/20 text-panicRed text-xs font-mono font-bold tracking-widest uppercase mb-2">
+            Status: Lockdown Active
+          </span>
+
+          <h2 className="font-serif text-3xl text-stone-100 font-bold mb-3">
+            Vault Cryptographically Frozen
+          </h2>
+
+          <p className="text-stone-400 text-sm max-w-sm mb-6 leading-relaxed font-sans">
+            Duress freeze protocol was executed. Ephemeral encryption keys have been scrubbed from memory. Reconstitution requires physical 2-of-2 paper recovery seed keys.
+          </p>
+
+          <button
+            onClick={handleUnfreeze}
+            className="px-6 py-3 rounded-full btn-neon-pink text-white font-bold text-xs uppercase tracking-wider flex items-center gap-2 shadow-pink-glow hover:opacity-95 transition-all"
+          >
+            <KeyRound className="w-4 h-4" />
+            <span>Restore with Emergency Paper Seeds</span>
+          </button>
+        </div>
+      );
+    }
+
+    if (!isUnlocked && activeTab !== 'lock') {
+      // Prompt user to unlock first if trying to browse locked vault tabs
+      return (
+        <LockScreen
+          coupleProfile={coupleProfile}
+          onUnlockVault={handleUnlockVault}
+          onOpenSecurity={() => setIsSecurityModalOpen(true)}
+          onOpenSettings={() => setIsSettingsModalOpen(true)}
+        />
+      );
+    }
+
+    switch (activeTab) {
+      case 'home':
+        return (
+          <VaultFeed
+            coupleProfile={coupleProfile}
+            memories={memories}
+            onAddMemory={handleAddMemory}
+            onDeleteMemory={handleDeleteMemory}
+            onPanicLock={handlePanicLock}
+            onSessionExpired={handleSessionExpired}
+            onOpenSecurity={() => setIsSecurityModalOpen(true)}
+            onOpenSettings={() => setIsSettingsModalOpen(true)}
+          />
+        );
+      case 'explore':
+        return (
+          <VaultExplore
+            coupleProfile={coupleProfile}
+            memories={memories}
+            onDeleteMemory={handleDeleteMemory}
+          />
+        );
+      case 'notes':
+        return (
+          <VaultLetters
+            coupleProfile={coupleProfile}
+            memories={memories}
+            onAddMemory={handleAddMemory}
+            onDeleteMemory={handleDeleteMemory}
+          />
+        );
+      case 'profile':
+        return (
+          <VaultProfile
+            coupleProfile={coupleProfile}
+            securitySettings={securitySettings}
+            onOpenSecurity={() => setIsSecurityModalOpen(true)}
+            onOpenSettings={() => setIsSettingsModalOpen(true)}
+            onBackToFeed={() => setActiveTab('home')}
+            onFreezeVault={handleFreezeVault}
+          />
+        );
+      case 'lock':
+      default:
+        return (
+          <LockScreen
+            coupleProfile={coupleProfile}
+            onUnlockVault={handleUnlockVault}
+            onOpenSecurity={() => setIsSecurityModalOpen(true)}
+            onOpenSettings={() => setIsSettingsModalOpen(true)}
+          />
+        );
+    }
+  };
+
+  // Render 3-Screen Panorama Content matching user reference screenshot
+  const renderPanoramaContent = () => {
+    return (
+      <div className="flex flex-col lg:flex-row items-center justify-center gap-6 lg:gap-8 overflow-x-auto py-4 px-2 select-none">
+        
+        {/* Screen 1: Welcome / Dual Lock */}
+        <div className="flex flex-col items-center">
+          <span className="text-xs font-mono font-bold text-[#FF4D9D] mb-2 tracking-wider uppercase">
+            Screen 1 • Dual-Approval Hero Lock
+          </span>
+          <div className="relative w-[340px] sm:w-[360px] h-[720px] bg-[#120317] rounded-[48px] shadow-phone-frame border-[7px] border-[#380E45] flex flex-col overflow-hidden ring-1 ring-white/20">
+            {/* Notch */}
+            <div className="flex items-center justify-between px-6 pt-2.5 pb-1 select-none">
+              <span className="text-[11px] font-semibold text-stone-200">9:41</span>
+              <div className="w-20 h-4 rounded-full bg-black border border-white/10" />
+              <div className="text-[10px] text-stone-300 font-mono">5G 100%</div>
+            </div>
+            <div className="flex-1 overflow-y-auto scrollbar-none flex flex-col">
+              <LockScreen
+                coupleProfile={coupleProfile}
+                onUnlockVault={handleUnlockVault}
+                onOpenSecurity={() => setIsSecurityModalOpen(true)}
+                onOpenSettings={() => setIsSettingsModalOpen(true)}
+              />
+            </div>
+            {/* Home bar */}
+            <div className="flex justify-center pb-1.5 pt-1 bg-[#16051C]">
+              <div className="w-28 h-1 rounded-full bg-white/25" />
+            </div>
+          </div>
+        </div>
+
+        {/* Screen 2: Feed / Explore */}
+        <div className="flex flex-col items-center">
+          <span className="text-xs font-mono font-bold text-[#FF4D9D] mb-2 tracking-wider uppercase">
+            Screen 2 • Precious Moments Feed
+          </span>
+          <div className="relative w-[340px] sm:w-[360px] h-[720px] bg-[#120317] rounded-[48px] shadow-phone-frame border-[7px] border-[#380E45] flex flex-col overflow-hidden ring-1 ring-white/20">
+            {/* Notch */}
+            <div className="flex items-center justify-between px-6 pt-2.5 pb-1 select-none">
+              <span className="text-[11px] font-semibold text-stone-200">9:41</span>
+              <div className="w-20 h-4 rounded-full bg-black border border-white/10" />
+              <div className="text-[10px] text-stone-300 font-mono">5G 100%</div>
+            </div>
+            <div className="flex-1 overflow-y-auto scrollbar-none flex flex-col">
+              <VaultFeed
+                coupleProfile={coupleProfile}
+                memories={memories}
+                onAddMemory={handleAddMemory}
+                onDeleteMemory={handleDeleteMemory}
+                onPanicLock={handlePanicLock}
+                onSessionExpired={handleSessionExpired}
+                onOpenSecurity={() => setIsSecurityModalOpen(true)}
+                onOpenSettings={() => setIsSettingsModalOpen(true)}
+              />
+            </div>
+            <BottomNav
+              activeTab="home"
+              onSelectTab={(t) => setActiveTab(t)}
+              isUnlocked={isUnlocked}
+            />
+            {/* Home bar */}
+            <div className="flex justify-center pb-1.5 pt-1 bg-[#16051C]">
+              <div className="w-28 h-1 rounded-full bg-white/25" />
+            </div>
+          </div>
+        </div>
+
+        {/* Screen 3: Profile & Security */}
+        <div className="flex flex-col items-center">
+          <span className="text-xs font-mono font-bold text-[#FF4D9D] mb-2 tracking-wider uppercase">
+            Screen 3 • Security & Trust Profile
+          </span>
+          <div className="relative w-[340px] sm:w-[360px] h-[720px] bg-[#120317] rounded-[48px] shadow-phone-frame border-[7px] border-[#380E45] flex flex-col overflow-hidden ring-1 ring-white/20">
+            {/* Notch */}
+            <div className="flex items-center justify-between px-6 pt-2.5 pb-1 select-none">
+              <span className="text-[11px] font-semibold text-stone-200">9:41</span>
+              <div className="w-20 h-4 rounded-full bg-black border border-white/10" />
+              <div className="text-[10px] text-stone-300 font-mono">5G 100%</div>
+            </div>
+            <div className="flex-1 overflow-y-auto scrollbar-none flex flex-col">
+              <VaultProfile
+                coupleProfile={coupleProfile}
+                securitySettings={securitySettings}
+                onOpenSecurity={() => setIsSecurityModalOpen(true)}
+                onOpenSettings={() => setIsSettingsModalOpen(true)}
+                onBackToFeed={() => setActiveTab('home')}
+                onFreezeVault={handleFreezeVault}
+              />
+            </div>
+            <BottomNav
+              activeTab="profile"
+              onSelectTab={(t) => setActiveTab(t)}
+              isUnlocked={isUnlocked}
+            />
+            {/* Home bar */}
+            <div className="flex justify-center pb-1.5 pt-1 bg-[#16051C]">
+              <div className="w-28 h-1 rounded-full bg-white/25" />
+            </div>
+          </div>
+        </div>
+
+      </div>
+    );
+  };
+
+  return (
+    <DeviceFrame
+      partner1Name={coupleProfile.partner1.name}
+      partner2Name={coupleProfile.partner2.name}
+      watermarkActive={securitySettings.antiScreenshotWatermark && isUnlocked}
+      onResetData={handleResetData}
+      viewMode={viewMode}
+      onChangeViewMode={setViewMode}
+      panoramaContent={renderPanoramaContent()}
+    >
+      {/* Active Screen Canvas */}
+      <div className="flex-1 flex flex-col overflow-y-auto">
+        {renderCurrentScreen()}
+      </div>
+
+      {/* Bottom Nav Bar (Dock) when in Single Mobile View */}
+      {viewMode === 'single' && !isFrozen && (
+        <BottomNav
+          activeTab={activeTab}
+          onSelectTab={(tab) => {
+            if (!isUnlocked && tab !== 'lock') {
+              sound.playSoftClick();
+              // Can browse, but LockScreen will request dual biometric if locked
+            }
+            setActiveTab(tab);
+          }}
+          isUnlocked={isUnlocked}
+          onPanicLock={handlePanicLock}
+        />
+      )}
+
+      {/* Security Architecture & Shamir Graph Modal */}
+      <SecurityModal
+        isOpen={isSecurityModalOpen}
+        onClose={() => setIsSecurityModalOpen(false)}
+        coupleProfile={coupleProfile}
+        securitySettings={securitySettings}
+        onUpdateSecuritySettings={handleSaveSecuritySettings}
+        onFreezeVault={handleFreezeVault}
+      />
+
+      {/* Couple Preferences & Partner Names Modal */}
+      <PartnerSettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        coupleProfile={coupleProfile}
+        onSaveProfile={handleSaveProfile}
+        securitySettings={securitySettings}
+        onSaveSecuritySettings={handleSaveSecuritySettings}
+      />
+    </DeviceFrame>
+  );
+}
+
+export default App;
