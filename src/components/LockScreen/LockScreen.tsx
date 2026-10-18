@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shield, QrCode, ScanFace, Check, KeyRound, Lock, Unlock, Sparkles, Smartphone, ArrowRightLeft, AlertCircle } from 'lucide-react';
-import { CoupleProfile } from '../../types/vault';
-import { InterlockingKey } from './InterlockingKey';
+import { Shield, QrCode, ScanFace, Check, KeyRound, Lock, Unlock, Sparkles, Smartphone, ArrowRightLeft, AlertCircle, RefreshCw } from 'lucide-react';
+import { CoupleProfile, VaultUnlockState } from '../../types/vault';
 import { DualDeviceModal } from './DualDeviceModal';
 import { PairDeviceModal } from './PairDeviceModal';
 import { PasskeyModal } from '../Security/PasskeyModal';
 import { PinModal } from './PinModal';
-import { verifyPasskey, isPlatformAuthenticatorAvailable, hasEnrolledPasskey } from '../../utils/webAuthn';
+import { SimulatedBiometricModal } from './SimulatedBiometricModal';
 import { realtimeVault } from '../../utils/realtimeVault';
 import { sound } from '../../utils/sound';
 
@@ -22,6 +21,9 @@ interface LockScreenProps {
   onChangeRole?: (role: 'partner1' | 'partner2') => void;
   roomCode?: string;
   partnerConnected?: boolean;
+  unlockState?: VaultUnlockState;
+  onUpdateUnlockState?: (state: VaultUnlockState) => void;
+  onPanicLock?: () => void;
 }
 
 export const LockScreen: React.FC<LockScreenProps> = ({
@@ -34,22 +36,39 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   onChangeRole = () => {},
   roomCode = 'BOND-8821',
   partnerConnected = false,
+  unlockState: propUnlockState,
+  onUpdateUnlockState,
+  onPanicLock,
 }) => {
-  const [partner1Approved, setPartner1Approved] = useState(false);
-  const [partner2Approved, setPartner2Approved] = useState(false);
+  // Local unlock state synced with prop
+  const [internalUnlockState, setInternalUnlockState] = useState<VaultUnlockState>('LOCKED');
+  const currentUnlockState = propUnlockState !== undefined ? propUnlockState : internalUnlockState;
+
+  const updateUnlockState = (state: VaultUnlockState) => {
+    setInternalUnlockState(state);
+    if (onUpdateUnlockState) {
+      onUpdateUnlockState(state);
+    }
+  };
+
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
   const [isDualModalOpen, setIsDualModalOpen] = useState(false);
   const [isPairModalOpen, setIsPairModalOpen] = useState(false);
   const [isPasskeyModalOpen, setIsPasskeyModalOpen] = useState(false);
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
-  const [biometricScanning, setBiometricScanning] = useState(false);
+  const [isBiometricModalOpen, setIsBiometricModalOpen] = useState(false);
 
   // Active Partner Data for this phone
   const isPartner1 = currentRole === 'partner1';
   const myPartner = isPartner1 ? coupleProfile.partner1 : coupleProfile.partner2;
   const otherPartner = isPartner1 ? coupleProfile.partner2 : coupleProfile.partner1;
-  const myApproved = isPartner1 ? partner1Approved : partner2Approved;
-  const otherApproved = isPartner1 ? partner2Approved : partner1Approved;
+
+  // Derived verified states
+  const partner1Verified = currentUnlockState === 'PARTNER_A_VERIFIED' || currentUnlockState === 'FULLY_UNLOCKED';
+  const partner2Verified = currentUnlockState === 'PARTNER_B_VERIFIED' || currentUnlockState === 'FULLY_UNLOCKED';
+  const myVerified = isPartner1 ? partner1Verified : partner2Verified;
+  const otherVerified = isPartner1 ? partner2Verified : partner1Verified;
+  const bothVerified = currentUnlockState === 'FULLY_UNLOCKED' || (partner1Verified && partner2Verified);
 
   // Dynamic PINs from couple profile (with defaults)
   const myExpectedPin = isPartner1
@@ -59,35 +78,71 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   // Subscribe to real-time events across physical devices
   useEffect(() => {
     const unsubscribe = realtimeVault.onMessage((msg) => {
-      if (msg.type === 'CONSENT_GRANTED') {
+      if (msg.type === 'UNLOCK_REQUESTED' && msg.payload?.unlockState) {
         sound.playPartnerApproved();
-        if (msg.partnerId === 'partner1') setPartner1Approved(true);
-        if (msg.partnerId === 'partner2') setPartner2Approved(true);
+        updateUnlockState(msg.payload.unlockState);
+      } else if (msg.type === 'UNLOCK_STATE_CHANGED' && msg.payload?.unlockState) {
+        if (msg.payload.unlockState === 'FULLY_UNLOCKED') {
+          triggerFullUnlock();
+        } else {
+          updateUnlockState(msg.payload.unlockState);
+        }
+      } else if (msg.type === 'VAULT_UNLOCKED') {
+        triggerFullUnlock();
+      } else if (msg.type === 'CONSENT_GRANTED') {
+        sound.playPartnerApproved();
+        if (msg.partnerId === 'partner1') {
+          updateUnlockState('PARTNER_A_VERIFIED');
+        } else {
+          updateUnlockState('PARTNER_B_VERIFIED');
+        }
       } else if (msg.type === 'CONSENT_REVOKED') {
         sound.playSoftClick();
-        if (msg.partnerId === 'partner1') setPartner1Approved(false);
-        if (msg.partnerId === 'partner2') setPartner2Approved(false);
+        updateUnlockState('LOCKED');
       } else if (msg.type === 'PANIC_LOCK') {
         sound.playPanicLock();
-        setPartner1Approved(false);
-        setPartner2Approved(false);
+        updateUnlockState('LOCKED');
+        setIsBiometricModalOpen(false);
+        setIsPinModalOpen(false);
       }
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [isPartner1]);
 
-  // 45-second security window when only one partner approves
+  // Full Unlock Handler
+  const triggerFullUnlock = () => {
+    updateUnlockState('FULLY_UNLOCKED');
+    sound.playVaultUnlocked();
+    try {
+      confetti({
+        particleCount: 90,
+        spread: 80,
+        origin: { y: 0.5 },
+        colors: ['#FF2E93', '#E11D74', '#A855F7', '#FFFFFF', '#F5D6B4'],
+        ticks: 200,
+        gravity: 0.85,
+      });
+    } catch {}
+
+    setTimeout(() => {
+      onUnlockVault();
+    }, 1100);
+  };
+
+  // 60-second security window when only one partner is verified
   useEffect(() => {
     let timer: NodeJS.Timeout;
-    if ((partner1Approved && !partner2Approved) || (!partner1Approved && partner2Approved)) {
-      setTimeRemaining(45);
+    if (
+      (currentUnlockState === 'PARTNER_A_VERIFIED' || currentUnlockState === 'PARTNER_B_VERIFIED') &&
+      !bothVerified
+    ) {
+      setTimeRemaining(60);
       timer = setInterval(() => {
         setTimeRemaining((prev) => {
           if (prev === null || prev <= 1) {
-            setPartner1Approved(false);
-            setPartner2Approved(false);
-            realtimeVault.sendConsent(false);
+            updateUnlockState('LOCKED');
+            realtimeVault.sendUnlockState('LOCKED');
             return null;
           }
           return prev - 1;
@@ -98,58 +153,50 @@ export const LockScreen: React.FC<LockScreenProps> = ({
     }
 
     return () => clearInterval(timer);
-  }, [partner1Approved, partner2Approved]);
+  }, [currentUnlockState, bothVerified]);
 
-  // When both partners approve: trigger celebration burst, sound, and unlock vault!
-  useEffect(() => {
-    if (partner1Approved && partner2Approved) {
-      sound.playVaultUnlocked();
+  // Handle clicking the Locked Vault Card
+  const handleLockedCardClick = () => {
+    if (bothVerified) return;
 
-      try {
-        confetti({
-          particleCount: 90,
-          spread: 80,
-          origin: { y: 0.5 },
-          colors: ['#FF2E93', '#E11D74', '#A855F7', '#FFFFFF', '#F5D6B4'],
-          ticks: 200,
-          gravity: 0.85,
-        });
-      } catch {
-        // Fallback
-      }
-
-      const timeout = setTimeout(() => {
-        onUnlockVault();
-      }, 1200);
-
-      return () => clearTimeout(timeout);
-    }
-  }, [partner1Approved, partner2Approved, onUnlockVault]);
-
-  // Strict 2-Factor PIN Authorization to prevent unauthorized device fingerprints
-  const handleAuthorizeMyDevice = () => {
-    if (myApproved) {
-      // Revoke consent
-      sound.playSoftClick();
-      if (isPartner1) setPartner1Approved(false);
-      else setPartner2Approved(false);
-      realtimeVault.sendConsent(false);
+    sound.playSoftClick();
+    if (myVerified) {
+      // Allow revoking if desired
+      updateUnlockState('LOCKED');
+      realtimeVault.sendUnlockState('LOCKED');
       return;
     }
 
-    sound.playSoftClick();
-    // Prompt for partner's secret PIN so unauthorized fingerprints cannot bypass
-    setIsPinModalOpen(true);
+    // Trigger local biometric/Passkey authentication (prompt simulated biometric modal)
+    setIsBiometricModalOpen(true);
   };
 
-  const handlePinSuccess = () => {
+  // When Biometric / Passkey Verification Succeeds
+  const handleBiometricSuccess = () => {
     sound.playPartnerApproved();
-    if (isPartner1) setPartner1Approved(true);
-    else setPartner2Approved(true);
-    realtimeVault.sendConsent(true);
-  };
 
-  const bothApproved = partner1Approved && partner2Approved;
+    if (isPartner1) {
+      if (currentUnlockState === 'PARTNER_B_VERIFIED') {
+        // Both authenticated!
+        triggerFullUnlock();
+        realtimeVault.sendUnlockState('FULLY_UNLOCKED');
+      } else {
+        // Partner A verified
+        updateUnlockState('PARTNER_A_VERIFIED');
+        realtimeVault.sendUnlockRequest('PARTNER_A_VERIFIED');
+      }
+    } else {
+      if (currentUnlockState === 'PARTNER_A_VERIFIED') {
+        // Both authenticated!
+        triggerFullUnlock();
+        realtimeVault.sendUnlockState('FULLY_UNLOCKED');
+      } else {
+        // Partner B verified
+        updateUnlockState('PARTNER_B_VERIFIED');
+        realtimeVault.sendUnlockRequest('PARTNER_B_VERIFIED');
+      }
+    }
+  };
 
   return (
     <div className="relative min-h-full flex flex-col justify-between py-3 px-4 sm:px-6 select-none ambient-app-canvas text-stone-200">
@@ -214,142 +261,170 @@ export const LockScreen: React.FC<LockScreenProps> = ({
         )}
       </div>
 
-      {/* Hero Visual Area: Nicely Structured (No Collisions!) */}
-      <div className="flex-1 flex flex-col items-center justify-center my-auto py-2 z-10">
+      {/* Hero Visual Area: The Locked Vault Card */}
+      <div className="flex-1 flex flex-col items-center justify-center my-auto py-2 z-10 w-full max-w-sm mx-auto">
         
-        {/* Couple Avatars & Connection Bar */}
-        <div className="w-full max-w-sm flex items-center justify-between px-2 mb-2">
-          
-          {/* Partner 1 Avatar Block */}
-          <div className="flex flex-col items-center">
-            <span className="glass-pill px-2.5 py-1 rounded-full text-[10px] font-sans font-semibold text-stone-200 mb-2 flex items-center gap-1">
-              <span>❤️</span>
-              <span>{coupleProfile.partner1.name}</span>
+        {/* Clickable Vault Card Container */}
+        <motion.div
+          onClick={handleLockedCardClick}
+          whileHover={{ scale: 1.01 }}
+          whileTap={{ scale: 0.99 }}
+          className={`w-full rounded-3xl p-4 border transition-all cursor-pointer group shadow-2xl relative overflow-hidden ${
+            bothVerified
+              ? 'bg-emeraldGlow/10 border-emeraldGlow/50 shadow-[0_0_30px_rgba(78,204,163,0.3)]'
+              : myVerified
+                ? 'bg-amber-500/10 border-amber-500/40 shadow-[0_0_20px_rgba(245,158,11,0.2)]'
+                : otherVerified
+                  ? 'bg-[#FF2E93]/15 border-[#FF2E93]/50 shadow-pink-glow animate-pulse'
+                  : 'bg-black/40 border-white/15 hover:border-[#FF2E93]/40 hover:bg-black/50'
+          }`}
+          title="Click to authenticate with your passkey"
+        >
+          {/* Subtle top indicator */}
+          <div className="flex items-center justify-between text-[10px] font-mono mb-3 text-stone-400 px-1">
+            <span className="flex items-center gap-1">
+              <Lock className="w-3 h-3 text-[#FF4D9D]" />
+              <span>{coupleProfile.vaultName}</span>
             </span>
+            <span className="uppercase tracking-wider font-semibold text-[#FF4D9D]">
+              {currentUnlockState.replace(/_/g, ' ')}
+            </span>
+          </div>
 
-            <div className={`relative w-20 h-20 sm:w-24 sm:h-24 rounded-full p-0.5 border-2 transition-all duration-300 ${
-              partner1Approved
-                ? 'border-emeraldGlow shadow-[0_0_20px_rgba(78,204,163,0.5)]'
-                : 'border-[#FF2E93]/60'
-            }`}>
-              <img
-                src={coupleProfile.partner1.avatar}
-                alt={coupleProfile.partner1.name}
-                className="w-full h-full object-cover rounded-full"
-              />
-              <div className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold border-2 border-[#120317] ${
-                partner1Approved ? 'bg-emeraldGlow text-black' : 'bg-black/80 text-stone-400'
+          {/* Couple Avatars & Central Lock Visual */}
+          <div className="flex items-center justify-between px-1 mb-2">
+            
+            {/* Partner 1 (Partner A) Avatar */}
+            <div className="flex flex-col items-center">
+              <span className="glass-pill px-2.5 py-0.5 rounded-full text-[10px] font-sans font-semibold text-stone-200 mb-1.5 flex items-center gap-1">
+                <span>❤️</span>
+                <span>{coupleProfile.partner1.name}</span>
+              </span>
+
+              <div className={`relative w-20 h-20 sm:w-22 sm:h-22 rounded-full p-0.5 border-2 transition-all duration-300 ${
+                partner1Verified
+                  ? 'border-emeraldGlow shadow-[0_0_20px_rgba(78,204,163,0.5)]'
+                  : 'border-[#FF2E93]/60'
               }`}>
-                {partner1Approved ? '✓' : '1'}
+                <img
+                  src={coupleProfile.partner1.avatar}
+                  alt={coupleProfile.partner1.name}
+                  className="w-full h-full object-cover rounded-full"
+                />
+                <div className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold border-2 border-[#120317] ${
+                  partner1Verified ? 'bg-emeraldGlow text-black' : 'bg-black/80 text-stone-400'
+                }`}>
+                  {partner1Verified ? '✓' : '1'}
+                </div>
               </div>
+
+              <span className={`text-[10px] font-mono mt-1 ${partner1Verified ? 'text-emeraldGlow font-bold' : 'text-stone-400'}`}>
+                {partner1Verified ? 'Passkey Verified' : 'Share 1 (A)'}
+              </span>
             </div>
 
-            <span className={`text-[10px] font-mono mt-1.5 ${partner1Approved ? 'text-emeraldGlow font-bold' : 'text-stone-400'}`}>
-              {partner1Approved ? 'Share 1 Active' : 'Key Share 1'}
-            </span>
-          </div>
-
-          {/* Interlocking Heart / Key Animation in Center */}
-          <div className="flex-1 flex flex-col items-center px-1">
-            <div className="relative w-24 h-24 flex items-center justify-center">
-              <motion.div
-                className={`w-14 h-14 rounded-full flex items-center justify-center border transition-all duration-500 ${
-                  bothApproved
-                    ? 'bg-[#FF2E93] text-white border-white shadow-pink-glow scale-110'
-                    : partner1Approved || partner2Approved
-                      ? 'bg-black/60 text-emeraldGlow border-emeraldGlow shadow-[0_0_15px_rgba(78,204,163,0.3)] animate-pulse'
-                      : 'bg-black/40 text-[#FF4D9D] border-white/10'
-                }`}
-              >
-                {bothApproved ? (
-                  <Unlock className="w-6 h-6 stroke-[2.5]" />
-                ) : (
-                  <Lock className="w-6 h-6 stroke-[2]" />
-                )}
-              </motion.div>
+            {/* Interlocking Central Heart / Lock */}
+            <div className="flex-1 flex flex-col items-center px-1">
+              <div className="relative w-20 h-20 flex items-center justify-center">
+                <motion.div
+                  className={`w-14 h-14 rounded-full flex items-center justify-center border transition-all duration-500 ${
+                    bothVerified
+                      ? 'bg-[#FF2E93] text-white border-white shadow-pink-glow scale-110'
+                      : myVerified || otherVerified
+                        ? 'bg-black/60 text-emeraldGlow border-emeraldGlow shadow-[0_0_15px_rgba(78,204,163,0.3)] animate-pulse'
+                        : 'bg-black/40 text-[#FF4D9D] border-white/10 group-hover:border-[#FF2E93]'
+                  }`}
+                >
+                  {bothVerified ? (
+                    <Unlock className="w-6 h-6 stroke-[2.5]" />
+                  ) : (
+                    <Lock className="w-6 h-6 stroke-[2]" />
+                  )}
+                </motion.div>
+              </div>
+              <span className="text-[10px] font-mono text-[#FF4D9D] uppercase tracking-wider">
+                2/2 SSS Lock
+              </span>
             </div>
-            <span className="text-[10px] font-mono text-[#FF4D9D] uppercase tracking-wider">
-              2/2 SSS Lock
-            </span>
-          </div>
 
-          {/* Partner 2 Avatar Block */}
-          <div className="flex flex-col items-center">
-            <span className="glass-pill px-2.5 py-1 rounded-full text-[10px] font-sans font-semibold text-stone-200 mb-2 flex items-center gap-1">
-              <span>✨</span>
-              <span>{coupleProfile.partner2.name}</span>
-            </span>
+            {/* Partner 2 (Partner B) Avatar */}
+            <div className="flex flex-col items-center">
+              <span className="glass-pill px-2.5 py-0.5 rounded-full text-[10px] font-sans font-semibold text-stone-200 mb-1.5 flex items-center gap-1">
+                <span>✨</span>
+                <span>{coupleProfile.partner2.name}</span>
+              </span>
 
-            <div className={`relative w-20 h-20 sm:w-24 sm:h-24 rounded-full p-0.5 border-2 transition-all duration-300 ${
-              partner2Approved
-                ? 'border-emeraldGlow shadow-[0_0_20px_rgba(78,204,163,0.5)]'
-                : 'border-[#A855F7]/60'
-            }`}>
-              <img
-                src={coupleProfile.partner2.avatar}
-                alt={coupleProfile.partner2.name}
-                className="w-full h-full object-cover rounded-full"
-              />
-              <div className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold border-2 border-[#120317] ${
-                partner2Approved ? 'bg-emeraldGlow text-black' : 'bg-black/80 text-stone-400'
+              <div className={`relative w-20 h-20 sm:w-22 sm:h-22 rounded-full p-0.5 border-2 transition-all duration-300 ${
+                partner2Verified
+                  ? 'border-emeraldGlow shadow-[0_0_20px_rgba(78,204,163,0.5)]'
+                  : 'border-[#A855F7]/60'
               }`}>
-                {partner2Approved ? '✓' : '2'}
+                <img
+                  src={coupleProfile.partner2.avatar}
+                  alt={coupleProfile.partner2.name}
+                  className="w-full h-full object-cover rounded-full"
+                />
+                <div className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold border-2 border-[#120317] ${
+                  partner2Verified ? 'bg-emeraldGlow text-black' : 'bg-black/80 text-stone-400'
+                }`}>
+                  {partner2Verified ? '✓' : '2'}
+                </div>
               </div>
+
+              <span className={`text-[10px] font-mono mt-1 ${partner2Verified ? 'text-emeraldGlow font-bold' : 'text-stone-400'}`}>
+                {partner2Verified ? 'Passkey Verified' : 'Share 2 (B)'}
+              </span>
             </div>
 
-            <span className={`text-[10px] font-mono mt-1.5 ${partner2Approved ? 'text-emeraldGlow font-bold' : 'text-stone-400'}`}>
-              {partner2Approved ? 'Share 2 Active' : 'Key Share 2'}
-            </span>
           </div>
 
-        </div>
-
-        {/* Live Mutual Status Alert Card */}
-        <div className="w-full max-w-sm mt-3 px-2">
-          <div className={`p-3 rounded-2xl border text-center transition-all ${
-            bothApproved
-              ? 'bg-emeraldGlow/15 border-emeraldGlow/40 text-emeraldGlow'
-              : myApproved && !otherApproved
-                ? 'bg-amber-500/10 border-amber-500/30 text-amber-200'
-                : !myApproved && otherApproved
-                  ? 'bg-[#FF2E93]/15 border-[#FF2E93]/40 text-stone-200 animate-pulse'
-                  : 'bg-black/30 border-white/10 text-stone-300'
-          }`}>
-            {bothApproved ? (
-              <div className="flex items-center justify-center gap-1.5 text-xs font-bold">
+          {/* Live Mutual Status Alert Area */}
+          <div className="mt-3 pt-3 border-t border-white/10">
+            {bothVerified ? (
+              <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-emeraldGlow">
                 <Sparkles className="w-4 h-4 text-emeraldGlow animate-spin" />
-                <span>Both Partners Approved • Decrypting Vault...</span>
+                <span>Both Partners Authenticated • Decrypting Vault...</span>
               </div>
-            ) : myApproved && !otherApproved ? (
-              <div className="text-xs">
-                <span className="font-bold text-amber-300 block">
-                  ✓ You ({myPartner.name}) Approved!
-                </span>
-                <span className="text-[11px] text-stone-400 font-mono mt-0.5 block">
-                  Waiting for {otherPartner.name} to scan on Phone 2... ({timeRemaining}s)
-                </span>
+            ) : myVerified && !otherVerified ? (
+              /* EXACT REQUIRED STRING 3: "You are authenticated • Waiting for partner's passkey to unlock..." */
+              <div className="text-center py-1">
+                <div className="flex items-center justify-center gap-2 text-xs">
+                  <RefreshCw className="w-3.5 h-3.5 text-amber-300 animate-spin" />
+                  <span className="font-semibold text-amber-200">
+                    You are authenticated • Waiting for partner's passkey to unlock...
+                  </span>
+                </div>
+                {timeRemaining !== null && (
+                  <span className="text-[10px] text-stone-400 font-mono mt-0.5 block">
+                    Security window: {timeRemaining}s remaining (Tap card to cancel)
+                  </span>
+                )}
               </div>
-            ) : !myApproved && otherApproved ? (
-              <div className="text-xs">
-                <span className="font-bold text-[#FF4D9D] block">
-                  ⚡ {otherPartner.name} has Approved on their phone!
-                </span>
-                <span className="text-[11px] text-stone-300 mt-0.5 block">
-                  Scan your Face ID below to unlock the vault. ({timeRemaining}s)
-                </span>
+            ) : !myVerified && otherVerified ? (
+              /* EXACT REQUIRED STRING 4: "Partner requested to unlock vault. Authenticate with your passkey" */
+              <div className="text-center py-1">
+                <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-[#FF4D9D]">
+                  <Sparkles className="w-3.5 h-3.5 text-[#FF4D9D] animate-pulse" />
+                  <span>Partner requested to unlock vault. Authenticate with your passkey</span>
+                </div>
+                {timeRemaining !== null && (
+                  <span className="text-[10px] text-stone-300 font-mono mt-0.5 block">
+                    {timeRemaining}s remaining • Tap below to scan
+                  </span>
+                )}
               </div>
             ) : (
-              <div className="text-xs">
-                <span className="font-semibold text-stone-200 block">
+              <div className="text-center py-0.5">
+                <span className="text-xs font-semibold text-stone-200 block">
                   Dual-Approval Required
                 </span>
                 <span className="text-[10px] text-stone-400 font-mono mt-0.5 block">
-                  Both partners must verify from their devices to decrypt
+                  Click locked vault card to authenticate with your passkey
                 </span>
               </div>
             )}
           </div>
-        </div>
+        </motion.div>
 
       </div>
 
@@ -358,7 +433,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
         
         {/* Device Identity Badge */}
         <div className="flex items-center justify-center gap-2 mb-3 text-xs text-stone-400">
-          <span>Identified: <strong className="text-white">{myPartner.name} (Phone {isPartner1 ? '1' : '2'})</strong></span>
+          <span>Active Phone: <strong className="text-white">{myPartner.name} (Device {isPartner1 ? '1' : '2'})</strong></span>
           {onOpenUserProfile && (
             <button
               onClick={() => {
@@ -381,35 +456,44 @@ export const LockScreen: React.FC<LockScreenProps> = ({
             title="Switch phone role"
           >
             <ArrowRightLeft className="w-3 h-3" />
-            <span>Switch</span>
+            <span>Switch Role</span>
           </button>
         </div>
 
-        {/* Primary Action Button (Only approves for THIS user!) */}
+        {/* Primary Action Button */}
         <motion.button
-          onClick={handleAuthorizeMyDevice}
-          disabled={bothApproved || biometricScanning}
+          onClick={handleLockedCardClick}
+          disabled={bothVerified}
           whileTap={{ scale: 0.96 }}
           className={`w-full max-w-xs py-3.5 px-6 rounded-full font-bold text-sm tracking-wide flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer mb-2.5 ${
-            myApproved
-              ? 'bg-emeraldGlow/20 text-emeraldGlow border border-emeraldGlow/40 hover:bg-emeraldGlow/30'
-              : 'btn-neon-pink text-white shadow-pink-glow'
+            bothVerified
+              ? 'bg-emeraldGlow/25 text-emeraldGlow border border-emeraldGlow'
+              : myVerified
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50 hover:bg-amber-500/30'
+                : otherVerified
+                  ? 'btn-neon-pink text-white shadow-pink-glow animate-pulse'
+                  : 'btn-neon-pink text-white shadow-pink-glow'
           }`}
         >
-          {biometricScanning ? (
-            <>
-              <ScanFace className="w-4 h-4 animate-spin" />
-              <span>Scanning Face ID...</span>
-            </>
-          ) : myApproved ? (
+          {bothVerified ? (
             <>
               <Check className="w-4 h-4 stroke-[3]" />
-              <span>Key Share Authorized (Tap to Cancel)</span>
+              <span>Vault Unlocked</span>
+            </>
+          ) : myVerified ? (
+            <>
+              <Check className="w-4 h-4 stroke-[3]" />
+              <span>You Authenticated (Tap to Cancel)</span>
+            </>
+          ) : otherVerified ? (
+            <>
+              <Sparkles className="w-4 h-4" />
+              <span>Authenticate with Passkey</span>
             </>
           ) : (
             <>
               <KeyRound className="w-4 h-4" />
-              <span>Authorize Key Share as {myPartner.name}</span>
+              <span>Authenticate Passkey as {myPartner.name}</span>
             </>
           )}
         </motion.button>
@@ -417,12 +501,12 @@ export const LockScreen: React.FC<LockScreenProps> = ({
         {/* Security Notice */}
         <p className="text-[10px] text-stone-400 font-mono text-center flex items-center justify-center gap-1">
           <Shield className="w-3 h-3 text-[#FF4D9D]" />
-          <span>Strict 2FA: Secret PIN required to prevent unauthorized unlocks</span>
+          <span>Strict 2FA: Both passkeys required to release Shamir Key Shares</span>
         </p>
 
         {/* Fallback & Helper links */}
-        <div className="flex items-center justify-center gap-3 text-xs text-stone-400">
-          {!myApproved && (
+        <div className="flex items-center justify-center gap-3 text-xs text-stone-400 mt-2">
+          {!myVerified && (
             <>
               <button
                 onClick={() => setIsPinModalOpen(true)}
@@ -451,13 +535,25 @@ export const LockScreen: React.FC<LockScreenProps> = ({
         </div>
       </div>
 
-      {/* Security PIN Entry Modal */}
+      {/* Simulated Biometric / Passkey Prompt Modal */}
+      <SimulatedBiometricModal
+        isOpen={isBiometricModalOpen}
+        onClose={() => setIsBiometricModalOpen(false)}
+        partnerName={myPartner.name}
+        partnerAvatar={myPartner.avatar}
+        keyShareId={myPartner.keyShareId}
+        biometricType={myPartner.biometricType}
+        expectedPin={myExpectedPin}
+        onSuccess={handleBiometricSuccess}
+      />
+
+      {/* Security PIN Entry Modal Fallback */}
       <PinModal
         isOpen={isPinModalOpen}
         onClose={() => setIsPinModalOpen(false)}
         partnerName={myPartner.name}
         expectedPin={myExpectedPin}
-        onSuccess={handlePinSuccess}
+        onSuccess={handleBiometricSuccess}
       />
 
       {/* Real Hardware Face ID / Passkey Modal */}
@@ -485,15 +581,15 @@ export const LockScreen: React.FC<LockScreenProps> = ({
         onClose={() => setIsDualModalOpen(false)}
         partner1={coupleProfile.partner1}
         partner2={coupleProfile.partner2}
-        partner1Approved={partner1Approved}
-        partner2Approved={partner2Approved}
+        partner1Approved={partner1Verified}
+        partner2Approved={partner2Verified}
         onApprovePartner1={() => {
-          setPartner1Approved(true);
-          realtimeVault.broadcastMessage({ type: 'CONSENT_GRANTED', partnerId: 'partner1', senderDeviceId: 'sim', timestamp: Date.now() });
+          updateUnlockState('PARTNER_A_VERIFIED');
+          realtimeVault.sendUnlockRequest('PARTNER_A_VERIFIED');
         }}
         onApprovePartner2={() => {
-          setPartner2Approved(true);
-          realtimeVault.broadcastMessage({ type: 'CONSENT_GRANTED', partnerId: 'partner2', senderDeviceId: 'sim', timestamp: Date.now() });
+          updateUnlockState('PARTNER_B_VERIFIED');
+          realtimeVault.sendUnlockRequest('PARTNER_B_VERIFIED');
         }}
         onUnlockVault={onUnlockVault}
       />

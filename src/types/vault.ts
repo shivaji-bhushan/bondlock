@@ -53,3 +53,35 @@ export interface DualApprovalState {
   partner2ApprovedAt?: number;
   expiresInSeconds: number;
 }
+
+export type VaultUnlockState =
+  | 'LOCKED'
+  | 'PARTNER_A_VERIFIED'
+  | 'PARTNER_B_VERIFIED'
+  | 'FULLY_UNLOCKED';
+
+export interface Vault {
+  id: string;
+  name: string;
+  inviteCode: string; // 6-digit code
+  createdAt: number;
+}
+
+export interface VaultMember {
+  userId: string;
+  vaultId: string;
+  role: 'partner1' | 'partner2';
+  joinedAt: number;
+}
+
+export interface UserAccount {
+  id: string;
+  email: string;
+  username: string;
+  name: string;
+  avatar: string;
+  pin?: string;
+  role: 'partner1' | 'partner2';
+  vaultId?: string | null;
+}
+

@@ -1,5 +1,5 @@
 import { getSupabaseClient } from './supabaseClient';
-import { Memory } from '../types/vault';
+import { Memory, VaultUnlockState } from '../types/vault';
 
 export type VaultActionType =
   | 'HEARTBEAT'
@@ -9,7 +9,10 @@ export type VaultActionType =
   | 'VAULT_UNLOCKED'
   | 'PANIC_LOCK'
   | 'NEW_MEMORY'
-  | 'SYNC_PROFILE';
+  | 'SYNC_PROFILE'
+  | 'UNLOCK_REQUESTED'
+  | 'UNLOCK_STATE_CHANGED'
+  | 'PARTNER_LINKED';
 
 export interface VaultMessage {
   type: VaultActionType;
@@ -260,6 +263,36 @@ class RealtimeVaultManager {
       senderDeviceId: this.deviceId,
       timestamp: Date.now(),
       payload: profile,
+    });
+  }
+
+  public sendUnlockRequest(state: VaultUnlockState) {
+    this.broadcastMessage({
+      type: 'UNLOCK_REQUESTED',
+      partnerId: this.currentRole,
+      senderDeviceId: this.deviceId,
+      timestamp: Date.now(),
+      payload: { unlockState: state },
+    });
+  }
+
+  public sendUnlockState(state: VaultUnlockState) {
+    this.broadcastMessage({
+      type: 'UNLOCK_STATE_CHANGED',
+      partnerId: this.currentRole,
+      senderDeviceId: this.deviceId,
+      timestamp: Date.now(),
+      payload: { unlockState: state },
+    });
+  }
+
+  public sendPartnerLinked(vaultId: string, inviteCode: string) {
+    this.broadcastMessage({
+      type: 'PARTNER_LINKED',
+      partnerId: this.currentRole,
+      senderDeviceId: this.deviceId,
+      timestamp: Date.now(),
+      payload: { vaultId, inviteCode },
     });
   }
 

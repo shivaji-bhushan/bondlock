@@ -9,9 +9,11 @@ import { VaultProfile } from './components/Vault/VaultProfile';
 import { SecurityModal } from './components/Security/SecurityModal';
 import { PartnerSettingsModal } from './components/Security/PartnerSettingsModal';
 import { LoginPage } from './components/Auth/LoginPage';
+import { PairingScreen } from './components/Auth/PairingScreen';
 import { UserProfileModal } from './components/Security/UserProfileModal';
+import { DevSwitcherToolbar } from './components/Dev/DevSwitcherToolbar';
 import { storage } from './utils/storage';
-import { Memory, CoupleProfile, SecuritySettings } from './types/vault';
+import { Memory, CoupleProfile, SecuritySettings, VaultUnlockState, Vault, UserAccount } from './types/vault';
 import { sound } from './utils/sound';
 import { realtimeVault } from './utils/realtimeVault';
 import { ShieldAlert, KeyRound } from 'lucide-react';
@@ -20,6 +22,7 @@ export function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('single');
   const [activeTab, setActiveTab] = useState<TabType>('lock');
   const [isUnlocked, setIsUnlocked] = useState(false);
+  const [unlockState, setUnlockState] = useState<VaultUnlockState>('LOCKED');
   const [isFrozen, setIsFrozen] = useState(() => storage.getIsFrozen());
   const [memories, setMemories] = useState<Memory[]>(() => storage.getMemories());
   const [coupleProfile, setCoupleProfile] = useState<CoupleProfile>(() => storage.getCoupleProfile());
@@ -28,23 +31,43 @@ export function App() {
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 
-  // User Authentication & Identity State (Always show login upfront on session start)
+  // User Authentication & Identity State
   const [authenticatedUser, setAuthenticatedUser] = useState<'partner1' | 'partner2' | null>(null);
   const [isUserProfileOpen, setIsUserProfileOpen] = useState(false);
 
   // Real-time Room & Cross-Device Pairing State
-  const [roomCode, setRoomCode] = useState<string>('BOND-8821');
+  const [roomCode, setRoomCode] = useState<string>('882104');
   const [currentRole, setCurrentRole] = useState<'partner1' | 'partner2'>('partner1');
   const [partnerConnected, setPartnerConnected] = useState(false);
 
-  // Parse URL search parameters (?pair=BOND-XXXX&role=partner2)
+  // Vault membership sync trigger
+  const [membershipSync, setMembershipSync] = useState(0);
+
+  // Derive active user account
+  const activeUserId = authenticatedUser === 'partner2' ? 'user_ananya' : 'user_aarav';
+  const currentUserAccount: UserAccount = storage.getUserAccount(activeUserId) || {
+    id: activeUserId,
+    email: `${authenticatedUser || 'aarav'}@bondlock.vault`,
+    username: authenticatedUser || 'aarav',
+    name: authenticatedUser === 'partner2' ? coupleProfile.partner2.name : coupleProfile.partner1.name,
+    avatar: authenticatedUser === 'partner2' ? coupleProfile.partner2.avatar : coupleProfile.partner1.avatar,
+    pin: authenticatedUser === 'partner2' ? coupleProfile.partner2.pin : coupleProfile.partner1.pin,
+    role: authenticatedUser || 'partner1',
+    vaultId: 'vault_demo_1',
+  };
+
+  // Junction Relation Check: is current logged-in user linked to a shared vault?
+  const memberVault: Vault | null = authenticatedUser ? storage.getMemberVault(activeUserId) : null;
+  const isLinkedToVault = Boolean(memberVault);
+
+  // Parse URL search parameters (?pair=882104&role=partner2)
   useEffect(() => {
     try {
       const params = new URLSearchParams(window.location.search);
       const pairParam = params.get('pair');
       const roleParam = params.get('role');
 
-      const activeCode = pairParam ? pairParam.toUpperCase() : 'BOND-8821';
+      const activeCode = pairParam ? pairParam.toUpperCase() : '882104';
       const activeRole = roleParam === 'partner2' ? 'partner2' : 'partner1';
 
       setRoomCode(activeCode);
@@ -52,7 +75,7 @@ export function App() {
 
       realtimeVault.initialize(activeCode, activeRole);
     } catch (e) {
-      realtimeVault.initialize('BOND-8821', 'partner1');
+      realtimeVault.initialize('882104', 'partner1');
     }
 
     return () => realtimeVault.cleanup();
@@ -70,10 +93,29 @@ export function App() {
         setCoupleProfile(msg.payload);
         storage.saveCoupleProfile(msg.payload);
         setPartnerConnected(true);
+      } else if (msg.type === 'UNLOCK_REQUESTED' && msg.payload?.unlockState) {
+        sound.playPartnerApproved();
+        setUnlockState(msg.payload.unlockState);
+      } else if (msg.type === 'UNLOCK_STATE_CHANGED' && msg.payload?.unlockState) {
+        setUnlockState(msg.payload.unlockState);
+        if (msg.payload.unlockState === 'FULLY_UNLOCKED') {
+          sound.playVaultUnlocked();
+          setIsUnlocked(true);
+          setActiveTab('home');
+        }
+      } else if (msg.type === 'VAULT_UNLOCKED') {
+        sound.playVaultUnlocked();
+        setUnlockState('FULLY_UNLOCKED');
+        setIsUnlocked(true);
+        setActiveTab('home');
       } else if (msg.type === 'PANIC_LOCK') {
         sound.playPanicLock();
         setIsUnlocked(false);
+        setUnlockState('LOCKED');
         setActiveTab('lock');
+      } else if (msg.type === 'PARTNER_LINKED') {
+        setMembershipSync((k) => k + 1);
+        setPartnerConnected(true);
       } else if (msg.type === 'NEW_MEMORY' && msg.payload) {
         sound.playPartnerApproved();
         setMemories((prev) => {
@@ -87,7 +129,7 @@ export function App() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [coupleProfile]);
 
   // Sync mute state on mount
   useEffect(() => {
@@ -96,12 +138,14 @@ export function App() {
 
   const handleUnlockVault = () => {
     if (isFrozen) return;
+    setUnlockState('FULLY_UNLOCKED');
     setIsUnlocked(true);
     setActiveTab('home');
   };
 
   const handlePanicLock = () => {
     setIsUnlocked(false);
+    setUnlockState('LOCKED');
     setActiveTab('lock');
     realtimeVault.sendPanicLock();
   };
@@ -109,6 +153,7 @@ export function App() {
   const handleSessionExpired = () => {
     sound.playPanicLock();
     setIsUnlocked(false);
+    setUnlockState('LOCKED');
     setActiveTab('lock');
     realtimeVault.sendPanicLock();
   };
@@ -117,7 +162,6 @@ export function App() {
     const updated = [newMemory, ...memories];
     setMemories(updated);
     storage.saveMemories(updated);
-    // Broadcast to partner's phone in real-time!
     realtimeVault.sendNewMemory(newMemory);
   };
 
@@ -141,6 +185,7 @@ export function App() {
   const handleFreezeVault = () => {
     setIsFrozen(true);
     setIsUnlocked(false);
+    setUnlockState('LOCKED');
     storage.setFrozen(true);
     realtimeVault.sendPanicLock();
   };
@@ -158,6 +203,7 @@ export function App() {
     setSecuritySettings(storage.getSecuritySettings());
     setIsFrozen(false);
     setIsUnlocked(false);
+    setUnlockState('LOCKED');
     setActiveTab('lock');
   };
 
@@ -171,6 +217,7 @@ export function App() {
       localStorage.setItem('bondlock_auth_user', partnerId);
       localStorage.setItem('bondlock_room_code', code);
     } catch (e) {}
+    setMembershipSync((k) => k + 1);
   };
 
   const handleLogout = () => {
@@ -179,8 +226,10 @@ export function App() {
     } catch (e) {}
     setAuthenticatedUser(null);
     setIsUnlocked(false);
+    setUnlockState('LOCKED');
     setActiveTab('lock');
     setIsUserProfileOpen(false);
+    setMembershipSync((k) => k + 1);
   };
 
   const handleChangeRole = (newRole: 'partner1' | 'partner2') => {
@@ -190,20 +239,72 @@ export function App() {
       localStorage.setItem('bondlock_auth_user', newRole);
     } catch (e) {}
     realtimeVault.setRole(newRole);
+    setMembershipSync((k) => k + 1);
+  };
+
+  // Developer Switcher: Instant switch between Partner A and Partner B without wiping storage
+  const handleSwitchDevPartner = (newRole: 'partner1' | 'partner2') => {
+    sound.playSoftClick();
+    setCurrentRole(newRole);
+    setAuthenticatedUser(newRole);
+    try {
+      localStorage.setItem('bondlock_auth_user', newRole);
+    } catch (e) {}
+    realtimeVault.setRole(newRole);
+    setMembershipSync((k) => k + 1);
+  };
+
+  // Developer Switcher: Toggle unlinking/linking to test the Onboarding Pairing Screen
+  const handleToggleUnlinkVault = () => {
+    sound.playSoftClick();
+    if (isLinkedToVault) {
+      storage.unlinkUserFromVault(activeUserId);
+    } else {
+      const demoVault = storage.getVaultById('vault_demo_1') || storage.createVault("Aarav & Ananya's Sanctuary", '882104');
+      storage.linkUserToVault(activeUserId, demoVault.id, currentRole);
+      realtimeVault.initialize(demoVault.inviteCode, currentRole);
+    }
+    setMembershipSync((k) => k + 1);
+  };
+
+  // Callback when user completes pairing screen
+  const handlePairingComplete = (vault: Vault, role: 'partner1' | 'partner2') => {
+    setRoomCode(vault.inviteCode);
+    setCurrentRole(role);
+    setMembershipSync((k) => k + 1);
   };
 
   // Render the current view in Single Device Mode
   const renderCurrentScreen = () => {
+    // 1. Onboarding check: Not logged in
     if (!authenticatedUser) {
       return (
         <LoginPage
           coupleProfile={coupleProfile}
           onLoginSuccess={handleLoginSuccess}
           onUpdateCoupleProfile={handleSaveProfile}
+          currentRoomCode={roomCode}
+          onUpdateRoomCode={(newCode) => {
+            setRoomCode(newCode);
+            realtimeVault.initialize(newCode, currentRole);
+          }}
         />
       );
     }
 
+    // 2. Onboarding check: Logged in, but NOT linked to a vault
+    if (!isLinkedToVault) {
+      return (
+        <PairingScreen
+          currentUser={currentUserAccount}
+          coupleProfile={coupleProfile}
+          onPairingComplete={handlePairingComplete}
+          onLogout={handleLogout}
+        />
+      );
+    }
+
+    // 3. Vault is frozen
     if (isFrozen) {
       return (
         <div className="min-h-full flex flex-col items-center justify-center p-6 text-center select-none ambient-app-canvas text-stone-200">
@@ -234,6 +335,7 @@ export function App() {
       );
     }
 
+    // 4. Linked Vault Dashboard: Locked Screen (Two-Step Dual Passkey Unlock Flow)
     if (!isUnlocked && activeTab !== 'lock') {
       return (
         <LockScreen
@@ -244,12 +346,16 @@ export function App() {
           onOpenUserProfile={() => setIsUserProfileOpen(true)}
           currentRole={currentRole}
           onChangeRole={handleChangeRole}
-          roomCode={roomCode}
+          roomCode={memberVault?.inviteCode || roomCode}
           partnerConnected={partnerConnected}
+          unlockState={unlockState}
+          onUpdateUnlockState={setUnlockState}
+          onPanicLock={handlePanicLock}
         />
       );
     }
 
+    // 5. Unlocked Vault Views (Session Bar 5:00 min active countdown + Panic Lock)
     switch (activeTab) {
       case 'home':
         return (
@@ -306,8 +412,11 @@ export function App() {
             onOpenUserProfile={() => setIsUserProfileOpen(true)}
             currentRole={currentRole}
             onChangeRole={handleChangeRole}
-            roomCode={roomCode}
+            roomCode={memberVault?.inviteCode || roomCode}
             partnerConnected={partnerConnected}
+            unlockState={unlockState}
+            onUpdateUnlockState={setUnlockState}
+            onPanicLock={handlePanicLock}
           />
         );
     }
@@ -338,8 +447,11 @@ export function App() {
                 onOpenUserProfile={() => setIsUserProfileOpen(true)}
                 currentRole={currentRole}
                 onChangeRole={handleChangeRole}
-                roomCode={roomCode}
+                roomCode={memberVault?.inviteCode || roomCode}
                 partnerConnected={partnerConnected}
+                unlockState={unlockState}
+                onUpdateUnlockState={setUnlockState}
+                onPanicLock={handlePanicLock}
               />
             </div>
             <div className="flex justify-center pb-1.5 pt-1 bg-[#16051C]">
@@ -421,79 +533,105 @@ export function App() {
     );
   };
 
-  // Render full-width split-screen LoginPage upfront before entering device frame
+  // If not authenticated, render LoginPage
   if (!authenticatedUser) {
     return (
-      <LoginPage
-        coupleProfile={coupleProfile}
-        onLoginSuccess={handleLoginSuccess}
-        onUpdateCoupleProfile={handleSaveProfile}
-        currentRoomCode={roomCode}
-        onUpdateRoomCode={(newCode) => {
-          setRoomCode(newCode);
-          realtimeVault.initialize(newCode, currentRole);
-        }}
-      />
+      <>
+        {/* Persistent Dev Switcher Toolbar */}
+        <DevSwitcherToolbar
+          currentRole={currentRole}
+          partner1Name={coupleProfile.partner1.name}
+          partner2Name={coupleProfile.partner2.name}
+          isLinkedToVault={isLinkedToVault}
+          onSwitchPartner={handleSwitchDevPartner}
+          onToggleUnlinkVault={handleToggleUnlinkVault}
+          vaultCode={memberVault?.inviteCode || roomCode}
+        />
+
+        <LoginPage
+          coupleProfile={coupleProfile}
+          onLoginSuccess={handleLoginSuccess}
+          onUpdateCoupleProfile={handleSaveProfile}
+          currentRoomCode={roomCode}
+          onUpdateRoomCode={(newCode) => {
+            setRoomCode(newCode);
+            realtimeVault.initialize(newCode, currentRole);
+          }}
+        />
+      </>
     );
   }
 
   return (
-    <DeviceFrame
-      partner1Name={coupleProfile.partner1.name}
-      partner2Name={coupleProfile.partner2.name}
-      watermarkActive={securitySettings.antiScreenshotWatermark && isUnlocked}
-      onResetData={handleResetData}
-      viewMode={viewMode}
-      onChangeViewMode={setViewMode}
-      panoramaContent={renderPanoramaContent()}
-    >
-      <div className="flex-1 flex flex-col overflow-y-auto">
-        {renderCurrentScreen()}
-      </div>
-
-      {/* Bottom Nav Bar (Dock) when Unlocked in Single Mobile View */}
-      {viewMode === 'single' && !isFrozen && isUnlocked && (
-        <BottomNav
-          activeTab={activeTab}
-          onSelectTab={(tab) => {
-            setActiveTab(tab);
-          }}
-          isUnlocked={isUnlocked}
-          onPanicLock={handlePanicLock}
-        />
-      )}
-
-      {/* Security Architecture & Shamir Graph Modal */}
-      <SecurityModal
-        isOpen={isSecurityModalOpen}
-        onClose={() => setIsSecurityModalOpen(false)}
-        coupleProfile={coupleProfile}
-        securitySettings={securitySettings}
-        onUpdateSecuritySettings={handleSaveSecuritySettings}
-        onFreezeVault={handleFreezeVault}
+    <>
+      {/* Persistent Dev Switcher Toolbar */}
+      <DevSwitcherToolbar
+        currentRole={currentRole}
+        partner1Name={coupleProfile.partner1.name}
+        partner2Name={coupleProfile.partner2.name}
+        isLinkedToVault={isLinkedToVault}
+        onSwitchPartner={handleSwitchDevPartner}
+        onToggleUnlinkVault={handleToggleUnlinkVault}
+        vaultCode={memberVault?.inviteCode || roomCode}
       />
 
-      {/* Couple Preferences & Partner Names Modal */}
-      <PartnerSettingsModal
-        isOpen={isSettingsModalOpen}
-        onClose={() => setIsSettingsModalOpen(false)}
-        coupleProfile={coupleProfile}
-        onSaveProfile={handleSaveProfile}
-        securitySettings={securitySettings}
-        onSaveSecuritySettings={handleSaveSecuritySettings}
-      />
+      <DeviceFrame
+        partner1Name={coupleProfile.partner1.name}
+        partner2Name={coupleProfile.partner2.name}
+        watermarkActive={securitySettings.antiScreenshotWatermark && isUnlocked}
+        onResetData={handleResetData}
+        viewMode={viewMode}
+        onChangeViewMode={setViewMode}
+        panoramaContent={renderPanoramaContent()}
+      >
+        <div className="flex-1 flex flex-col overflow-y-auto pt-6 sm:pt-4">
+          {renderCurrentScreen()}
+        </div>
 
-      {/* Identified Partner Profile Modal */}
-      {authenticatedUser && (
-        <UserProfileModal
-          isOpen={isUserProfileOpen}
-          onClose={() => setIsUserProfileOpen(false)}
-          partner={authenticatedUser === 'partner2' ? coupleProfile.partner2 : coupleProfile.partner1}
+        {/* Bottom Nav Bar (Dock) when Unlocked in Single Mobile View */}
+        {viewMode === 'single' && !isFrozen && isUnlocked && isLinkedToVault && (
+          <BottomNav
+            activeTab={activeTab}
+            onSelectTab={(tab) => {
+              setActiveTab(tab);
+            }}
+            isUnlocked={isUnlocked}
+            onPanicLock={handlePanicLock}
+          />
+        )}
+
+        {/* Security Architecture & Shamir Graph Modal */}
+        <SecurityModal
+          isOpen={isSecurityModalOpen}
+          onClose={() => setIsSecurityModalOpen(false)}
           coupleProfile={coupleProfile}
-          onLogout={handleLogout}
+          securitySettings={securitySettings}
+          onUpdateSecuritySettings={handleSaveSecuritySettings}
+          onFreezeVault={handleFreezeVault}
         />
-      )}
-    </DeviceFrame>
+
+        {/* Couple Preferences & Partner Names Modal */}
+        <PartnerSettingsModal
+          isOpen={isSettingsModalOpen}
+          onClose={() => setIsSettingsModalOpen(false)}
+          coupleProfile={coupleProfile}
+          onSaveProfile={handleSaveProfile}
+          securitySettings={securitySettings}
+          onSaveSecuritySettings={handleSaveSecuritySettings}
+        />
+
+        {/* Identified Partner Profile Modal */}
+        {authenticatedUser && (
+          <UserProfileModal
+            isOpen={isUserProfileOpen}
+            onClose={() => setIsUserProfileOpen(false)}
+            partner={authenticatedUser === 'partner2' ? coupleProfile.partner2 : coupleProfile.partner1}
+            coupleProfile={coupleProfile}
+            onLogout={handleLogout}
+          />
+        )}
+      </DeviceFrame>
+    </>
   );
 }
 
