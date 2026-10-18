@@ -8,7 +8,8 @@ export type VaultActionType =
   | 'CONSENT_REVOKED'
   | 'VAULT_UNLOCKED'
   | 'PANIC_LOCK'
-  | 'NEW_MEMORY';
+  | 'NEW_MEMORY'
+  | 'SYNC_PROFILE';
 
 export interface VaultMessage {
   type: VaultActionType;
@@ -249,6 +250,16 @@ class RealtimeVaultManager {
       senderDeviceId: this.deviceId,
       timestamp: Date.now(),
       payload: memory,
+    });
+  }
+
+  public sendSyncProfile(profile: any) {
+    this.broadcastMessage({
+      type: 'SYNC_PROFILE',
+      partnerId: this.currentRole,
+      senderDeviceId: this.deviceId,
+      timestamp: Date.now(),
+      payload: profile,
     });
   }
 

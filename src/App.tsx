@@ -63,6 +63,13 @@ export function App() {
     const unsubscribe = realtimeVault.onMessage((msg) => {
       if (msg.type === 'PARTNER_JOINED') {
         setPartnerConnected(true);
+        // Sync our couple profile to the newly joined partner's phone
+        realtimeVault.sendSyncProfile(coupleProfile);
+      } else if (msg.type === 'SYNC_PROFILE' && msg.payload) {
+        sound.playSoftClick();
+        setCoupleProfile(msg.payload);
+        storage.saveCoupleProfile(msg.payload);
+        setPartnerConnected(true);
       } else if (msg.type === 'PANIC_LOCK') {
         sound.playPanicLock();
         setIsUnlocked(false);
@@ -123,6 +130,7 @@ export function App() {
   const handleSaveProfile = (profile: CoupleProfile) => {
     setCoupleProfile(profile);
     storage.saveCoupleProfile(profile);
+    realtimeVault.sendSyncProfile(profile);
   };
 
   const handleSaveSecuritySettings = (settings: SecuritySettings) => {
@@ -153,12 +161,15 @@ export function App() {
     setActiveTab('lock');
   };
 
-  const handleLoginSuccess = (partnerId: 'partner1' | 'partner2') => {
+  const handleLoginSuccess = (partnerId: 'partner1' | 'partner2', targetRoomCode?: string) => {
+    const code = (targetRoomCode || roomCode).toUpperCase().trim();
     setAuthenticatedUser(partnerId);
     setCurrentRole(partnerId);
-    realtimeVault.setRole(partnerId);
+    setRoomCode(code);
+    realtimeVault.initialize(code, partnerId);
     try {
       localStorage.setItem('bondlock_auth_user', partnerId);
+      localStorage.setItem('bondlock_room_code', code);
     } catch (e) {}
   };
 
@@ -417,6 +428,11 @@ export function App() {
         coupleProfile={coupleProfile}
         onLoginSuccess={handleLoginSuccess}
         onUpdateCoupleProfile={handleSaveProfile}
+        currentRoomCode={roomCode}
+        onUpdateRoomCode={(newCode) => {
+          setRoomCode(newCode);
+          realtimeVault.initialize(newCode, currentRole);
+        }}
       />
     );
   }

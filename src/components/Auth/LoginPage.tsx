@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import { 
@@ -17,7 +17,11 @@ import {
   ShieldCheck, 
   RefreshCw, 
   ArrowRight,
-  AlertCircle
+  AlertCircle,
+  Copy,
+  Share2,
+  Zap,
+  Users
 } from 'lucide-react';
 import { CoupleProfile } from '../../types/vault';
 import { verifyPasskey, isPlatformAuthenticatorAvailable } from '../../utils/webAuthn';
@@ -27,11 +31,20 @@ import { initialCoupleProfile } from '../../data/initialMemories';
 
 interface LoginPageProps {
   coupleProfile: CoupleProfile;
-  onLoginSuccess: (partnerId: 'partner1' | 'partner2') => void;
+  onLoginSuccess: (partnerId: 'partner1' | 'partner2', targetRoomCode?: string) => void;
   onUpdateCoupleProfile?: (profile: CoupleProfile) => void;
+  currentRoomCode?: string;
+  onUpdateRoomCode?: (newCode: string) => void;
 }
 
-// Preset Aesthetic Avatars
+// 3 Background Photos matching the 3 screens in the user's reference image
+const SCREEN_PHOTOS = {
+  login: 'https://images.unsplash.com/photo-1522673607200-164d1b6ce486?auto=format&fit=crop&w=1000&q=85', // Indoor romantic couple looking lovingly
+  welcome: 'https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?auto=format&fit=crop&w=1000&q=85', // Sunset beach romantic embrace
+  signup: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=1000&q=85', // Smiling happy outdoor couple
+};
+
+// Preset Avatars for Profile Photo
 const PRESET_AVATARS = [
   'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
   'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=400&q=80',
@@ -44,70 +57,94 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   coupleProfile,
   onLoginSuccess,
   onUpdateCoupleProfile,
+  currentRoomCode = 'BOND-8821',
+  onUpdateRoomCode,
 }) => {
-  // Navigation: 'showcase' | 'login' | 'signup'
-  const [currentScreen, setCurrentScreen] = useState<'showcase' | 'login' | 'signup'>('login');
+  // Screen state: 'login' | 'signup' | 'welcome'
+  const [screenMode, setScreenMode] = useState<'login' | 'signup' | 'welcome'>('login');
+
+  // Vault Connection & Role Selection (Fix for connecting two accounts to 1 vault)
+  const [selectedRole, setSelectedRole] = useState<'partner1' | 'partner2'>('partner1');
+  const [vaultRoomCode, setVaultRoomCode] = useState(currentRoomCode);
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  // Check URL params (?role=partner2&pair=BOND-XXXX) on load
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const pair = params.get('pair');
+      const role = params.get('role');
+      if (pair) {
+        setVaultRoomCode(pair.toUpperCase());
+        if (onUpdateRoomCode) onUpdateRoomCode(pair.toUpperCase());
+      }
+      if (role === 'partner2') {
+        setSelectedRole('partner2');
+        setLoginEmail(coupleProfile.partner2.name.toLowerCase() + '@bondlock.vault');
+        setLoginPassword(coupleProfile.partner2.pin || '2512');
+      }
+    } catch (e) {}
+  }, [coupleProfile]);
 
   // Sign In Form State
-  const [loginEmail, setLoginEmail] = useState('jaedoe75@gmail.com');
+  const [loginEmail, setLoginEmail] = useState('aarav@bondlock.vault');
   const [loginPassword, setLoginPassword] = useState('1404');
-  const [showLoginPassword, setShowLoginPassword] = useState(false);
-  const [loginRememberMe, setLoginRememberMe] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState('');
 
   // Sign Up Form State
+  const [signUpName, setSignUpName] = useState('');
   const [signUpEmail, setSignUpEmail] = useState('');
   const [signUpPassword, setSignUpPassword] = useState('');
-  const [signUpYourName, setSignUpYourName] = useState('');
-  const [signUpPartnerName, setSignUpPartnerName] = useState('');
-  const [signUpPartnerPin, setSignUpPartnerPin] = useState('');
-  const [signUpRememberMe, setSignUpRememberMe] = useState(true);
+  const [agreeTerms, setAgreeTerms] = useState(true);
+  const [profilePhoto, setProfilePhoto] = useState<string>(PRESET_AVATARS[0]);
   const [signUpError, setSignUpError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Profile Photo Upload State (Partner 1 & Partner 2)
-  const [myProfilePhoto, setMyProfilePhoto] = useState<string>(PRESET_AVATARS[0]);
-  const [partnerProfilePhoto, setPartnerProfilePhoto] = useState<string>(PRESET_AVATARS[1]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const partnerFileInputRef = useRef<HTMLInputElement>(null);
 
   const partner1 = coupleProfile.partner1;
   const partner2 = coupleProfile.partner2;
 
-  // Handle Photo File Upload
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>, target: 'me' | 'partner') => {
+  // Handle Role selection
+  const handleSelectRole = (role: 'partner1' | 'partner2') => {
+    sound.playSoftClick();
+    setSelectedRole(role);
+    if (role === 'partner1') {
+      setLoginEmail(partner1.name.toLowerCase() + '@bondlock.vault');
+      setLoginPassword(partner1.pin || '1404');
+    } else {
+      setLoginEmail(partner2.name.toLowerCase() + '@bondlock.vault');
+      setLoginPassword(partner2.pin || '2512');
+    }
+    setLoginError('');
+  };
+
+  // Copy Partner Invite Link (Links Phone 2 directly to this vault!)
+  const handleCopyInviteLink = () => {
+    sound.playSoftClick();
+    const url = `${window.location.origin}/?pair=${vaultRoomCode}&role=partner2`;
+    navigator.clipboard.writeText(url);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2500);
+  };
+
+  // Profile Photo File Upload
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       sound.playSoftClick();
       const reader = new FileReader();
       reader.onloadend = () => {
         if (typeof reader.result === 'string') {
-          if (target === 'me') {
-            setMyProfilePhoto(reader.result);
-          } else {
-            setPartnerProfilePhoto(reader.result);
-          }
+          setProfilePhoto(reader.result);
         }
       };
       reader.readAsDataURL(file);
     }
   };
 
-  // Quick 1-Tap Partner Autofill in Sign In
-  const handleQuickSelect = (role: 'partner1' | 'partner2') => {
-    sound.playSoftClick();
-    if (role === 'partner1') {
-      setLoginEmail('aarav@bondlock.vault');
-      setLoginPassword(partner1.pin || '1404');
-    } else {
-      setLoginEmail('ananya@bondlock.vault');
-      setLoginPassword(partner2.pin || '2512');
-    }
-    setLoginError('');
-  };
-
-  // Sign In Submit
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  // Sign In Submission
+  const handleSignIn = (e: React.FormEvent) => {
     e.preventDefault();
     sound.playSoftClick();
     setLoginError('');
@@ -115,93 +152,43 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     const query = loginEmail.trim().toLowerCase();
     const pin = loginPassword.trim();
 
-    if (!query) {
-      setLoginError('Please enter your email or username.');
-      sound.playPanicLock();
-      return;
-    }
-
     if (!pin) {
       setLoginError('Please enter your 4-digit security PIN or password.');
       sound.playPanicLock();
       return;
     }
 
-    // Match accounts
-    const accounts = storage.getAccounts();
-    const matched = accounts.find(
-      (a) =>
-        a.username.toLowerCase() === query ||
-        a.email.toLowerCase() === query ||
-        a.profile.partner1.name.toLowerCase() === query ||
-        a.profile.partner2.name.toLowerCase() === query
-    );
+    const expectedPin = selectedRole === 'partner1' ? (partner1.pin || '1404') : (partner2.pin || '2512');
 
-    const isP1 =
-      query.includes('aarav') ||
-      query.includes('jaedoe') ||
-      query === partner1.name.toLowerCase() ||
-      query === 'partner1' ||
-      (matched && matched.role === 'partner1');
-
-    const isP2 =
-      query.includes('ananya') ||
-      query === partner2.name.toLowerCase() ||
-      query === 'partner2' ||
-      (matched && matched.role === 'partner2');
-
-    let expectedPin = '';
-    let targetRole: 'partner1' | 'partner2' = 'partner1';
-
-    if (isP1) {
-      expectedPin = partner1.pin || '1404';
-      targetRole = 'partner1';
-    } else if (isP2) {
-      expectedPin = partner2.pin || '2512';
-      targetRole = 'partner2';
-    } else if (matched) {
-      expectedPin = matched.pin;
-      targetRole = matched.role;
-    } else {
-      expectedPin = partner1.pin || '1404';
-      targetRole = 'partner1';
-    }
-
-    // Forgiving match: expected PIN, demo 1234, 1404, or 2512
+    // Forgiving validation: accepts partner PIN or universal test PIN 1234
     if (pin === expectedPin || pin === '1234' || pin === '1404' || pin === '2512') {
-      if (matched && onUpdateCoupleProfile) {
-        onUpdateCoupleProfile(matchedAccountProfile(matched.profile));
-      }
-
       sound.playPartnerApproved();
       try {
-        confetti({ particleCount: 70, spread: 65, origin: { y: 0.6 } });
+        confetti({ particleCount: 60, spread: 60, origin: { y: 0.6 } });
       } catch (e) {}
 
+      if (onUpdateRoomCode) onUpdateRoomCode(vaultRoomCode);
+
       setTimeout(() => {
-        onLoginSuccess(targetRole);
+        onLoginSuccess(selectedRole, vaultRoomCode);
       }, 250);
     } else {
       sound.playPanicLock();
-      setLoginError('Incorrect PIN. (Default: Aarav is 1404, Ananya is 2512, or demo 1234)');
+      setLoginError(`Incorrect password. (Default: Aarav is 1404, Ananya is 2512, or demo 1234)`);
     }
   };
 
-  const matchedAccountProfile = (profile: CoupleProfile) => profile;
-
-  // Sign Up Submit with Custom Profile Photo
-  const handleSignUpSubmit = async (e: React.FormEvent) => {
+  // Sign Up Submission
+  const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     sound.playSoftClick();
     setSignUpError('');
 
-    const yourName = signUpYourName.trim() || (signUpEmail.includes('@') ? signUpEmail.split('@')[0] : signUpEmail.trim()) || 'Partner A';
-    const partnerName = signUpPartnerName.trim() || 'Partner B';
-    const yourPin = signUpPassword.trim();
-    const partnerPin = signUpPartnerPin.trim() || '2512';
+    const name = signUpName.trim() || 'Partner A';
+    const pin = signUpPassword.trim();
 
-    if (!yourPin || yourPin.length !== 4) {
-      setSignUpError('Your security PIN must be exactly 4 digits.');
+    if (!pin || pin.length !== 4) {
+      setSignUpError('Security PIN must be exactly 4 digits.');
       sound.playPanicLock();
       return;
     }
@@ -209,47 +196,25 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     setIsSubmitting(true);
     await new Promise((r) => setTimeout(r, 400));
 
-    const share1 = 'SHARE-0x' + Math.random().toString(16).substring(2, 8).toUpperCase();
-    const share2 = 'SHARE-0x' + Math.random().toString(16).substring(2, 8).toUpperCase();
-
-    // Construct profile using the user's uploaded / chosen profile photos!
+    // Update couple profile with the custom uploaded profile photo and name
     const newProfile: CoupleProfile = {
+      ...coupleProfile,
       partner1: {
-        id: 'partner1',
-        name: yourName,
-        avatar: myProfilePhoto,
-        role: `${yourName} • Key Share 1`,
-        biometricType: 'Face ID',
-        deviceInfo: 'Enclave Secured Phone',
-        keyShareId: share1,
-        pin: yourPin,
+        ...coupleProfile.partner1,
+        name: name,
+        avatar: profilePhoto,
+        pin: pin,
+        role: `${name} • Key Share 1`,
       },
-      partner2: {
-        id: 'partner2',
-        name: partnerName,
-        avatar: partnerProfilePhoto,
-        role: `${partnerName} • Key Share 2`,
-        biometricType: 'Touch ID',
-        deviceInfo: 'Partner Paired Device',
-        keyShareId: share2,
-        pin: partnerPin,
-      },
-      anniversaryDate: new Date().toISOString().split('T')[0],
-      vaultName: `${yourName} & ${partnerName}’s Sanctuary`,
+      vaultName: `${name} & Partner’s Vault`,
     };
 
     storage.saveCoupleProfile(newProfile);
-    storage.saveAccount({
-      email: signUpEmail.trim() || `${yourName.toLowerCase()}@bondlock.vault`,
-      username: yourName.toLowerCase(),
-      pin: yourPin,
-      role: 'partner1',
-      profile: newProfile,
-    });
-
     if (onUpdateCoupleProfile) {
       onUpdateCoupleProfile(newProfile);
     }
+
+    if (onUpdateRoomCode) onUpdateRoomCode(vaultRoomCode);
 
     setIsSubmitting(false);
     sound.playVaultUnlocked();
@@ -259,659 +224,557 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     } catch (e) {}
 
     // Automatically log in as Partner 1 (creator)
-    onLoginSuccess('partner1');
+    onLoginSuccess('partner1', vaultRoomCode);
   };
 
-  // Biometric / Apple Login
-  const handleAppleLogin = async () => {
+  // Hardware Biometric / Face ID / Apple Passkey
+  const handleBiometricAuth = async () => {
     sound.playBiometricScan();
     const isAvail = await isPlatformAuthenticatorAvailable();
     if (isAvail) {
-      const auth = await verifyPasskey('partner1');
+      const auth = await verifyPasskey(selectedRole);
       if (auth.success) {
         sound.playVaultUnlocked();
-        onLoginSuccess('partner1');
+        onLoginSuccess(selectedRole, vaultRoomCode);
         return;
       }
     }
-    setLoginError('Biometric passkey unavailable. Please use PIN.');
+    setLoginError('Biometric passkey not available. Please enter your 4-digit PIN.');
   };
 
-  const handleResetToDemo = () => {
+  // Reset Demo
+  const handleResetDemo = () => {
     sound.playSoftClick();
     if (onUpdateCoupleProfile) {
       onUpdateCoupleProfile(initialCoupleProfile);
     }
+    setSelectedRole('partner1');
+    setVaultRoomCode('BOND-8821');
     setLoginEmail('aarav@bondlock.vault');
     setLoginPassword('1404');
-    setMyProfilePhoto(PRESET_AVATARS[0]);
-    setPartnerProfilePhoto(PRESET_AVATARS[1]);
+    setProfilePhoto(PRESET_AVATARS[0]);
     setLoginError('');
-    setCurrentScreen('login');
+    setScreenMode('login');
   };
 
+  // Active top image
+  const activeImage = screenMode === 'signup' 
+    ? SCREEN_PHOTOS.signup 
+    : screenMode === 'welcome' 
+      ? SCREEN_PHOTOS.welcome 
+      : SCREEN_PHOTOS.login;
+
   return (
-    <div className="min-h-screen w-full bg-[#1A0314] flex items-center justify-center p-0 sm:p-4 md:p-6 font-sans selection:bg-[#FF2E93] selection:text-white select-none">
+    <div className="min-h-screen w-full bg-[#FAF0F5] flex items-center justify-center p-0 sm:p-4 md:p-6 font-sans selection:bg-[#FF4B72] selection:text-white select-none relative">
       
       {/* Mobile Device Frame Container (Exact Match to Reference Screenshot) */}
-      <div className="relative w-full max-w-[410px] h-[100dvh] sm:h-[840px] bg-gradient-to-b from-[#8B1A54] via-[#650E3B] to-[#3B0722] sm:rounded-[44px] shadow-2xl sm:border-[8px] sm:border-white/10 overflow-hidden flex flex-col justify-between text-white">
+      <div className="relative w-full max-w-[410px] h-[100dvh] sm:h-[840px] bg-white sm:rounded-[44px] shadow-2xl sm:border-[8px] sm:border-white/80 overflow-hidden flex flex-col justify-between text-stone-900">
         
-        {/* Ambient Floating Hearts Background Watermark */}
-        <div className="absolute inset-0 pointer-events-none opacity-15 overflow-hidden">
-          <Heart className="w-16 h-16 fill-white absolute top-6 left-8 rotate-12" />
-          <Heart className="w-12 h-12 fill-white absolute top-28 right-10 -rotate-12" />
-          <Heart className="w-20 h-20 fill-white absolute top-48 left-16 rotate-45" />
-          <Heart className="w-14 h-14 fill-white absolute top-72 right-12 -rotate-6" />
-          <Heart className="w-24 h-24 fill-white absolute bottom-36 left-8 rotate-12" />
-          <Heart className="w-16 h-16 fill-white absolute bottom-12 right-16 -rotate-12" />
-        </div>
+        {/* ================= TOP HALF: Full-Bleed Romantic Photo ================= */}
+        <div className="relative w-full h-[46%] sm:h-[48%] overflow-hidden bg-stone-900 shrink-0">
+          <AnimatePresence mode="wait">
+            <motion.img
+              key={screenMode}
+              src={activeImage}
+              alt="Romantic Couple"
+              initial={{ opacity: 0, scale: 1.05 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.5 }}
+              className="w-full h-full object-cover object-center"
+            />
+          </AnimatePresence>
 
-        {/* Top iOS Status Bar (11:30 | Signal, WiFi, Battery) */}
-        <div className="relative z-20 flex items-center justify-between px-7 pt-4 pb-1 text-xs font-semibold text-white/90 shrink-0">
-          <span>11:30</span>
-          <div className="flex items-center gap-1.5 text-xs">
-            <span className="text-[10px] font-mono">5G</span>
-            <div className="w-5 h-2.5 rounded-xs border border-white/80 p-0.5 flex items-center">
-              <div className="w-full h-full bg-white rounded-2xs" />
+          {/* iOS Top Status Bar (9:41, Signal, Battery - From Screenshot) */}
+          <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between px-7 pt-3.5 text-xs font-semibold text-white drop-shadow-md">
+            <span>9:41</span>
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="text-[10px] font-mono">5G</span>
+              <div className="w-5 h-2.5 rounded-xs border border-white p-0.5 flex items-center">
+                <div className="w-full h-full bg-white rounded-2xs" />
+              </div>
             </div>
           </div>
+
+          {/* Soft vignette at bottom of photo to blend smoothly */}
+          <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
         </div>
 
-        {/* ================= SCREEN CONTENT AREA ================= */}
-        <div className="relative z-10 flex-1 flex flex-col justify-between overflow-y-auto px-5 sm:px-6 pt-2 pb-5 scrollbar-none">
-          <AnimatePresence mode="wait">
+        {/* ================= BOTTOM HALF: Crisp Pure White Curved Sheet ================= */}
+        <div className="relative -mt-8 z-20 flex-1 bg-white rounded-t-[36px] sm:rounded-t-[44px] shadow-2xl px-6 pt-5 pb-4 flex flex-col justify-between overflow-y-auto scrollbar-none">
+          
+          {/* ================= SCREEN 1: LOG IN ================= */}
+          {screenMode === 'login' && (
+            <motion.div
+              key="login"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              className="flex-1 flex flex-col justify-between"
+            >
+              {/* Top Segmented Tab Switcher [ Log in ] [ Sign up ] (Exact from Screenshot) */}
+              <div className="w-full p-1 rounded-full bg-stone-100 flex items-center border border-stone-200/60 mb-3 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setScreenMode('login')}
+                  className="flex-1 py-1.5 rounded-full text-xs font-bold bg-white text-stone-900 shadow-xs transition-all text-center"
+                >
+                  Log in
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.playSoftClick();
+                    setScreenMode('signup');
+                  }}
+                  className="flex-1 py-1.5 rounded-full text-xs font-medium text-stone-500 hover:text-stone-900 transition-all text-center"
+                >
+                  Sign up
+                </button>
+              </div>
 
-            {/* ----------------- SCREEN 1: SHOWCASE INTRO ----------------- */}
-            {currentScreen === 'showcase' && (
-              <motion.div
-                key="showcase"
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 20 }}
-                className="flex-1 flex flex-col justify-between py-4"
-              >
-                {/* Two Tilted Romantic Couple Cards with Heart Joining Them (From Screenshot) */}
-                <div className="my-auto relative flex items-center justify-center pt-8 pb-4">
-                  {/* Left Tilted Photo (Woman) */}
-                  <motion.div
-                    animate={{ rotate: [-6, -4, -6] }}
-                    transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
-                    className="relative w-36 h-48 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/20 transform -rotate-6 -mr-4 z-10"
-                  >
-                    <img
-                      src={partner1.avatar}
-                      alt="Partner 1"
-                      className="w-full h-full object-cover"
-                    />
-                  </motion.div>
+              {/* Header Texts */}
+              <div className="mb-2">
+                <h2 className="text-xl sm:text-2xl font-black text-stone-900 tracking-tight flex items-center gap-1.5">
+                  <span>Welcome Back!</span>
+                  <span>👋</span>
+                </h2>
+                <p className="text-xs text-stone-500 font-sans mt-0.5">
+                  Let's start with sign in
+                </p>
+              </div>
 
-                  {/* Center Floating Romantic Heart Connector */}
-                  <div className="relative z-30 w-11 h-11 rounded-full bg-gradient-to-tr from-[#FF2E93] to-[#EC4899] border-2 border-white flex items-center justify-center shadow-lg -mx-2">
-                    <Heart className="w-6 h-6 fill-white text-white drop-shadow-sm" />
-                  </div>
+              {/* ====== VAULT COUPLING SECTION: Connect Two Accounts to 1 Vault ====== */}
+              <div className="p-2.5 rounded-2xl bg-pink-50/70 border border-pink-200/60 mb-2.5 space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] font-semibold text-stone-700">
+                  <span className="flex items-center gap-1 text-[#FF4B72]">
+                    <Users className="w-3.5 h-3.5" />
+                    <span>Who is on this phone?</span>
+                  </span>
 
-                  {/* Right Tilted Photo (Man) */}
-                  <motion.div
-                    animate={{ rotate: [6, 4, 6] }}
-                    transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
-                    className="relative w-36 h-48 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/20 transform rotate-6 -ml-4 z-10"
-                  >
-                    <img
-                      src={partner2.avatar}
-                      alt="Partner 2"
-                      className="w-full h-full object-cover"
-                    />
-                  </motion.div>
-                </div>
-
-                {/* Bottom Headline & Description */}
-                <div className="pt-4">
-                  <h2 className="text-2xl sm:text-3xl font-extrabold text-white leading-tight">
-                    Where Matches Turn into{' '}
-                    <span className="text-[#FF2E93] underline decoration-[#FF2E93] decoration-wavy">
-                      Moments
-                    </span>
-                  </h2>
-                  <p className="text-xs text-white/70 font-sans mt-2 leading-relaxed">
-                    Discover meaningful connections that go beyond swipes. Chat, laugh, and lock your sacred memories together.
-                  </p>
-
+                  {/* Share Invite Link button so Partner 2 connects instantly! */}
                   <button
-                    onClick={() => {
-                      sound.playSoftClick();
-                      setCurrentScreen('login');
-                    }}
-                    className="w-full mt-6 py-3.5 px-6 rounded-full bg-gradient-to-r from-[#D946EF] via-[#EC4899] to-[#8B5CF6] text-white font-bold text-sm tracking-wide shadow-lg hover:shadow-pink-glow transition-all flex items-center justify-center gap-2"
+                    type="button"
+                    onClick={handleCopyInviteLink}
+                    className="text-[10px] text-[#FF4B72] hover:text-[#E11D74] flex items-center gap-1 font-mono font-bold underline"
+                    title="Copy invite link for Partner 2 phone"
                   >
-                    <span>Get Started</span>
-                    <ArrowRight className="w-4 h-4" />
+                    {copiedLink ? <Check className="w-3 h-3 text-emerald-600" /> : <Share2 className="w-3 h-3" />}
+                    <span>{copiedLink ? 'Link Copied!' : 'Invite Partner'}</span>
                   </button>
                 </div>
-              </motion.div>
-            )}
 
-            {/* ----------------- SCREEN 2: LOGIN / WELCOME BACK ----------------- */}
-            {currentScreen === 'login' && (
-              <motion.div
-                key="login"
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.98 }}
-                className="flex-1 flex flex-col justify-between"
-              >
-                {/* Top Glowing Heart Emblem with Couple Silhouette (From Screenshot) */}
-                <div className="flex flex-col items-center text-center pt-2">
-                  <div className="relative w-18 h-18 sm:w-20 sm:h-20 mb-2 flex items-center justify-center">
-                    {/* Pulsing Back Halo */}
-                    <div className="absolute inset-0 bg-[#FF2E93]/30 rounded-full blur-md animate-pulse" />
-                    
-                    {/* Center Layered Romantic Heart Emblem */}
-                    <div className="relative w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-gradient-to-tr from-[#FF2E93] via-[#E11D74] to-[#F472B6] border-2 border-white/40 flex items-center justify-center shadow-lg p-3">
-                      <svg viewBox="0 0 100 100" className="w-full h-full fill-white drop-shadow-sm">
-                        <path d="M50 88 Q10 55 10 30 A20 20 0 0 1 50 20 A20 20 0 0 1 90 30 Q90 55 50 88 Z" />
-                        {/* Silhouette of lovers facing each other inside heart */}
-                        <circle cx="43" cy="40" r="5" fill="#8B1A54" />
-                        <circle cx="57" cy="40" r="5" fill="#8B1A54" />
-                        <path d="M38 55 Q43 48 48 55 Z" fill="#8B1A54" />
-                        <path d="M52 55 Q57 48 62 55 Z" fill="#8B1A54" />
-                      </svg>
-                    </div>
+                {/* Partner 1 vs Partner 2 Selection */}
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleSelectRole('partner1')}
+                    className={`py-1.5 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all border ${
+                      selectedRole === 'partner1'
+                        ? 'bg-white border-[#FF4B72] text-[#FF4B72] shadow-xs'
+                        : 'bg-white/60 border-stone-200 text-stone-600 hover:bg-white'
+                    }`}
+                  >
+                    <img src={partner1.avatar} alt="P1" className="w-4 h-4 rounded-full object-cover" />
+                    <span>{partner1.name}</span>
+                    <span className="text-[10px] text-stone-400 font-mono">(1404)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSelectRole('partner2')}
+                    className={`py-1.5 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all border ${
+                      selectedRole === 'partner2'
+                        ? 'bg-white border-[#A855F7] text-[#9333EA] shadow-xs'
+                        : 'bg-white/60 border-stone-200 text-stone-600 hover:bg-white'
+                    }`}
+                  >
+                    <img src={partner2.avatar} alt="P2" className="w-4 h-4 rounded-full object-cover" />
+                    <span>{partner2.name}</span>
+                    <span className="text-[10px] text-stone-400 font-mono">(2512)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Form Inputs (Exact Pill Style from Screenshot) */}
+              <form onSubmit={handleSignIn} className="space-y-2.5">
+                {/* Email Address Input */}
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-stone-400">
+                    <Mail className="w-4 h-4" />
                   </div>
-
-                  <h1 className="text-2xl font-bold text-white tracking-tight">
-                    Welcome back !
-                  </h1>
-                  <p className="text-xs text-white/70 font-sans mt-0.5">
-                    Login to continue.!!!
-                  </p>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Enter email address"
+                    value={loginEmail}
+                    onChange={(e) => {
+                      setLoginEmail(e.target.value);
+                      setLoginError('');
+                    }}
+                    className="w-full pl-10 pr-4 py-2.5 sm:py-3 rounded-2xl bg-white border border-stone-200 text-stone-900 placeholder-stone-400 text-xs focus:outline-none focus:border-[#FF4B72] transition-all shadow-2xs"
+                  />
                 </div>
 
-                {/* Frosted Glass Auth Card (From Screenshot) */}
-                <div className="my-auto py-2">
-                  <form onSubmit={handleLoginSubmit} className="space-y-3.5">
-                    
-                    {/* Quick 1-Tap Partner Chips */}
-                    <div className="flex items-center gap-2">
+                {/* Password / 4-Digit Security PIN Input */}
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-stone-400">
+                    <Lock className="w-4 h-4" />
+                  </div>
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    maxLength={4}
+                    placeholder="Enter your password"
+                    value={loginPassword}
+                    onChange={(e) => {
+                      setLoginPassword(e.target.value.replace(/\D/g, ''));
+                      setLoginError('');
+                    }}
+                    className="w-full pl-10 pr-10 py-2.5 sm:py-3 rounded-2xl bg-white border border-stone-200 text-stone-900 placeholder-stone-400 font-mono text-xs focus:outline-none focus:border-[#FF4B72] transition-all shadow-2xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-stone-400 hover:text-stone-700"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+
+                {/* Forgot Password Link (From Screenshot) */}
+                <div className="flex justify-end pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => alert(`Demo Passwords: ${partner1.name}: 1404, ${partner2.name}: 2512, or demo 1234`)}
+                    className="text-[11px] font-bold text-stone-800 hover:text-[#FF4B72] transition-colors"
+                  >
+                    Forgot Password?
+                  </button>
+                </div>
+
+                {/* Error Banner */}
+                {loginError && (
+                  <p className="text-[11px] text-rose-600 font-sans text-center font-medium">
+                    {loginError}
+                  </p>
+                )}
+
+                {/* Primary Button: Coral-to-Pink Gradient Pill (From Screenshot) */}
+                <button
+                  type="submit"
+                  className="w-full py-3 sm:py-3.5 rounded-full bg-gradient-to-r from-[#FF5E8E] to-[#FF4B72] hover:opacity-95 text-white font-bold text-xs uppercase tracking-wider shadow-md shadow-[#FF4B72]/25 transition-all active:scale-[0.99] mt-1"
+                >
+                  Sign In
+                </button>
+              </form>
+
+              {/* OR Divider (From Screenshot) */}
+              <div className="relative my-2 text-center">
+                <span className="text-[10px] text-stone-400 font-sans uppercase font-bold tracking-wider">
+                  OR
+                </span>
+              </div>
+
+              {/* Apple Button: Clean White Pill with Apple Icon (From Screenshot) */}
+              <button
+                type="button"
+                onClick={handleBiometricAuth}
+                className="w-full py-2.5 sm:py-3 rounded-full bg-white hover:bg-stone-50 border border-stone-300 text-stone-900 font-bold text-xs flex items-center justify-center gap-2 shadow-2xs transition-all"
+              >
+                <svg className="w-4 h-4 fill-current" viewBox="0 0 170 170">
+                  <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.69-3.08-7.7-7.91-12.03-14.49-6.03-9.14-10.82-20.08-14.37-32.8-3.55-12.72-5.32-24.52-5.32-35.4 0-14.6 3.69-26.65 11.08-36.14 7.39-9.49 16.5-14.36 27.34-14.61 5.35 0 11.26 1.41 17.73 4.23 6.47 2.82 10.59 4.31 12.35 4.47 1.45 0 5.86-1.61 13.23-4.83 7.37-3.22 13.54-4.53 18.52-3.92 13.73 1.09 24.32 6.51 31.78 16.27-12.28 7.4-18.3 17.43-18.06 30.1.24 9.9 4.08 18.15 11.51 24.76 7.43 6.61 16.32 10.37 26.67 11.27-2.3 7.08-5.29 14.54-8.97 22.37zM119.22 31.84c0-7.2 2.66-14.07 7.99-20.61 5.33-6.54 11.97-10.65 19.92-12.33.24 1.46.36 2.79.36 3.99 0 7.23-2.85 14.12-8.55 20.67-5.7 6.55-12.44 10.45-20.22 11.7-.24-1.34-.36-2.48-.36-3.42z" />
+                </svg>
+                <span>Continue with apple</span>
+              </button>
+            </motion.div>
+          )}
+
+          {/* ================= SCREEN 3: SIGN UP ================= */}
+          {screenMode === 'signup' && (
+            <motion.div
+              key="signup"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              className="flex-1 flex flex-col justify-between"
+            >
+              {/* Top Segmented Tab Switcher [ Log in ] [ Sign up ] (Sign up Active) */}
+              <div className="w-full p-1 rounded-full bg-stone-100 flex items-center border border-stone-200/60 mb-2.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.playSoftClick();
+                    setScreenMode('login');
+                  }}
+                  className="flex-1 py-1.5 rounded-full text-xs font-medium text-stone-500 hover:text-stone-900 transition-all text-center"
+                >
+                  Log in
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScreenMode('signup')}
+                  className="flex-1 py-1.5 rounded-full text-xs font-bold bg-white text-stone-900 shadow-xs transition-all text-center"
+                >
+                  Sign up
+                </button>
+              </div>
+
+              {/* Title & Subtitle (From Screenshot) */}
+              <div className="mb-2">
+                <h2 className="text-xl sm:text-2xl font-black text-stone-900 tracking-tight flex items-center gap-1.5">
+                  <span>Join BondLock Today</span>
+                  <span>✨</span>
+                </h2>
+                <p className="text-xs text-stone-500 font-sans mt-0.5">
+                  Create your account and start sparking connection today!
+                </p>
+              </div>
+
+              {/* Profile Photo Set Option (User Request) */}
+              <div className="flex items-center gap-3 p-2 rounded-2xl bg-stone-50 border border-stone-200/70 mb-2">
+                <div 
+                  className="relative group cursor-pointer shrink-0" 
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Upload profile photo"
+                >
+                  <img
+                    src={profilePhoto}
+                    alt="Profile Avatar"
+                    className="w-12 h-12 rounded-full object-cover ring-2 ring-[#FF4B72]"
+                  />
+                  <div className="absolute bottom-0 right-0 w-4 h-4 rounded-full bg-[#FF4B72] border border-white flex items-center justify-center text-white">
+                    <Camera className="w-2.5 h-2.5" />
+                  </div>
+                </div>
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handlePhotoUpload}
+                />
+
+                <div className="flex-1 min-w-0">
+                  <span className="text-[10px] font-bold text-stone-700 block truncate">
+                    Set Profile Photo
+                  </span>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    {PRESET_AVATARS.slice(0, 4).map((av, i) => (
                       <button
+                        key={i}
                         type="button"
-                        onClick={() => handleQuickSelect('partner1')}
-                        className={`flex-1 py-1.5 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                          loginEmail.includes('aarav') || loginEmail.includes('jaedoe')
-                            ? 'bg-[#FF2E93]/30 border-[#FF2E93] text-white shadow-xs'
-                            : 'bg-white/10 border-white/20 text-white/70 hover:bg-white/15'
+                        onClick={() => setProfilePhoto(av)}
+                        className={`w-5 h-5 rounded-full overflow-hidden border ${
+                          profilePhoto === av ? 'border-[#FF4B72] ring-1 ring-[#FF4B72]' : 'border-stone-300'
                         }`}
                       >
-                        <img src={partner1.avatar} alt="Aarav" className="w-4 h-4 rounded-full object-cover" />
-                        <span>Aarav</span>
-                        <span className="text-[10px] text-pink-300 font-mono">(1404)</span>
+                        <img src={av} alt="avatar" className="w-full h-full object-cover" />
                       </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleQuickSelect('partner2')}
-                        className={`flex-1 py-1.5 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                          loginEmail.includes('ananya')
-                            ? 'bg-[#FF2E93]/30 border-[#FF2E93] text-white shadow-xs'
-                            : 'bg-white/10 border-white/20 text-white/70 hover:bg-white/15'
-                        }`}
-                      >
-                        <img src={partner2.avatar} alt="Ananya" className="w-4 h-4 rounded-full object-cover" />
-                        <span>Ananya</span>
-                        <span className="text-[10px] text-pink-300 font-mono">(2512)</span>
-                      </button>
-                    </div>
-
-                    {/* Email Input */}
-                    <div>
-                      <label className="text-xs text-white/80 font-medium block mb-1">
-                        Email
-                      </label>
-                      <div className="relative">
-                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-white/60">
-                          <Mail className="w-4 h-4" />
-                        </div>
-                        <input
-                          type="text"
-                          required
-                          placeholder="jaedoe75@gmail.com"
-                          value={loginEmail}
-                          onChange={(e) => {
-                            setLoginEmail(e.target.value);
-                            setLoginError('');
-                          }}
-                          className="w-full pl-10 pr-4 py-3 rounded-2xl bg-white/15 border border-white/20 text-white placeholder-white/40 text-xs focus:outline-none focus:border-[#FF2E93] focus:bg-white/25 transition-all shadow-inner"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Password Input */}
-                    <div>
-                      <label className="text-xs text-white/80 font-medium block mb-1">
-                        Password
-                      </label>
-                      <div className="relative">
-                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-white/60">
-                          <Lock className="w-4 h-4" />
-                        </div>
-                        <input
-                          type={showLoginPassword ? 'text' : 'password'}
-                          required
-                          placeholder="••••"
-                          value={loginPassword}
-                          onChange={(e) => {
-                            setLoginPassword(e.target.value);
-                            setLoginError('');
-                          }}
-                          className="w-full pl-10 pr-10 py-3 rounded-2xl bg-white/15 border border-white/20 text-white placeholder-white/40 font-mono text-xs focus:outline-none focus:border-[#FF2E93] focus:bg-white/25 transition-all shadow-inner"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowLoginPassword(!showLoginPassword)}
-                          className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-white/60 hover:text-white"
-                        >
-                          {showLoginPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Remember Me & Forget Password Row (From Screenshot) */}
-                    <div className="flex items-center justify-between text-xs text-white/80 pt-0.5">
-                      <label className="flex items-center gap-1.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={loginRememberMe}
-                          onChange={(e) => setLoginRememberMe(e.target.checked)}
-                          className="w-3.5 h-3.5 rounded accent-[#FF2E93]"
-                        />
-                        <span>Remember me</span>
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => alert('Demo PINs: 1404 (Aarav), 2512 (Ananya), or 1234')}
-                        className="hover:text-pink-300 transition-colors"
-                      >
-                        Forget password?
-                      </button>
-                    </div>
-
-                    {/* Error Banner */}
-                    {loginError && (
-                      <div className="p-2.5 rounded-xl bg-panicRed/20 border border-panicRed/50 text-white text-xs font-mono flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4 shrink-0 text-red-300" />
-                        <span>{loginError}</span>
-                      </div>
-                    )}
-
-                    {/* Gradient CTA Button (From Screenshot) */}
-                    <button
-                      type="submit"
-                      className="w-full py-3.5 px-6 rounded-full bg-gradient-to-r from-[#D946EF] via-[#EC4899] to-[#8B5CF6] text-white font-bold text-sm tracking-wide shadow-lg hover:shadow-pink-glow transition-all active:scale-[0.99] mt-2"
-                    >
-                      Login
-                    </button>
-                  </form>
-
-                  {/* Divider: "Or Sign up With" */}
-                  <div className="relative my-4 text-center">
-                    <span className="text-xs text-white/60 font-sans">
-                      Or Sign up With
-                    </span>
-                  </div>
-
-                  {/* 3 Social / Quick-Auth Circle Buttons (From Screenshot) */}
-                  <div className="flex items-center justify-center gap-4">
-                    {/* Facebook */}
+                    ))}
                     <button
                       type="button"
-                      onClick={() => handleQuickSelect('partner1')}
-                      className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 border border-white/20 flex items-center justify-center text-white transition-all shadow-sm"
-                      title="Quick Login as Partner 1"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="text-[9px] text-[#FF4B72] font-semibold underline ml-1"
                     >
-                      <span className="font-bold text-sm">f</span>
-                    </button>
-
-                    {/* Google */}
-                    <button
-                      type="button"
-                      onClick={() => handleQuickSelect('partner1')}
-                      className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 border border-white/20 flex items-center justify-center transition-all shadow-sm"
-                      title="Google Login"
-                    >
-                      <svg className="w-4 h-4" viewBox="0 0 24 24">
-                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                      </svg>
-                    </button>
-
-                    {/* Apple / Face ID */}
-                    <button
-                      type="button"
-                      onClick={handleAppleLogin}
-                      className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 border border-white/20 flex items-center justify-center text-white transition-all shadow-sm"
-                      title="Face ID / Apple Passkey"
-                    >
-                      <svg className="w-4 h-4 fill-white" viewBox="0 0 170 170">
-                        <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.69-3.08-7.7-7.91-12.03-14.49-6.03-9.14-10.82-20.08-14.37-32.8-3.55-12.72-5.32-24.52-5.32-35.4 0-14.6 3.69-26.65 11.08-36.14 7.39-9.49 16.5-14.36 27.34-14.61 5.35 0 11.26 1.41 17.73 4.23 6.47 2.82 10.59 4.31 12.35 4.47 1.45 0 5.86-1.61 13.23-4.83 7.37-3.22 13.54-4.53 18.52-3.92 13.73 1.09 24.32 6.51 31.78 16.27-12.28 7.4-18.3 17.43-18.06 30.1.24 9.9 4.08 18.15 11.51 24.76 7.43 6.61 16.32 10.37 26.67 11.27-2.3 7.08-5.29 14.54-8.97 22.37zM119.22 31.84c0-7.2 2.66-14.07 7.99-20.61 5.33-6.54 11.97-10.65 19.92-12.33.24 1.46.36 2.79.36 3.99 0 7.23-2.85 14.12-8.55 20.67-5.7 6.55-12.44 10.45-20.22 11.7-.24-1.34-.36-2.48-.36-3.42z" />
-                      </svg>
+                      Upload
                     </button>
                   </div>
                 </div>
+              </div>
 
-                {/* Bottom Toggle Link */}
-                <div className="pt-2 text-center text-xs text-white/70">
-                  Don't have an account?{' '}
+              {/* Sign Up Form Inputs */}
+              <form onSubmit={handleSignUp} className="space-y-2">
+                {/* Input 1: Enter your name */}
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-stone-400">
+                    <User className="w-4 h-4" />
+                  </div>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Enter your name"
+                    value={signUpName}
+                    onChange={(e) => setSignUpName(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white border border-stone-200 text-stone-900 placeholder-stone-400 text-xs focus:outline-none focus:border-[#FF4B72] shadow-2xs"
+                  />
+                </div>
+
+                {/* Input 2: Enter email address */}
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-stone-400">
+                    <Mail className="w-4 h-4" />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Enter email address"
+                    value={signUpEmail}
+                    onChange={(e) => setSignUpEmail(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white border border-stone-200 text-stone-900 placeholder-stone-400 text-xs focus:outline-none focus:border-[#FF4B72] shadow-2xs"
+                  />
+                </div>
+
+                {/* Input 3: Enter your password (4-digit PIN) */}
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-stone-400">
+                    <Lock className="w-4 h-4" />
+                  </div>
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    maxLength={4}
+                    placeholder="Enter your 4-digit security PIN"
+                    value={signUpPassword}
+                    onChange={(e) => setSignUpPassword(e.target.value.replace(/\D/g, ''))}
+                    className="w-full pl-10 pr-10 py-2.5 rounded-2xl bg-white border border-stone-200 text-stone-900 placeholder-stone-400 font-mono text-xs focus:outline-none focus:border-[#FF4B72] shadow-2xs"
+                  />
                   <button
                     type="button"
-                    onClick={() => {
-                      sound.playSoftClick();
-                      setCurrentScreen('signup');
-                    }}
-                    className="font-bold text-white hover:text-pink-300 underline"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-stone-400 hover:text-stone-700"
                   >
-                    Create an account
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-              </motion.div>
-            )}
 
-            {/* ----------------- SCREEN 3: CREATE AN ACCOUNT (WITH PROFILE PHOTO UPLOAD) ----------------- */}
-            {currentScreen === 'signup' && (
-              <motion.div
-                key="signup"
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.98 }}
-                className="flex-1 flex flex-col justify-between"
+                {/* Checkbox: I agree to Terms & Conditions (From Screenshot) */}
+                <div className="flex items-center text-xs text-stone-600 pt-0.5">
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={agreeTerms}
+                      onChange={(e) => setAgreeTerms(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded accent-[#FF4B72]"
+                    />
+                    <span className="text-[11px]">I agree to BondLock Terms & Conditions.</span>
+                  </label>
+                </div>
+
+                {signUpError && (
+                  <p className="text-[11px] text-rose-600 font-sans text-center font-medium">
+                    {signUpError}
+                  </p>
+                )}
+
+                {/* Primary Button: Sign Up (From Screenshot) */}
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="w-full py-3 rounded-full bg-gradient-to-r from-[#FF5E8E] to-[#FF4B72] hover:opacity-95 text-white font-bold text-xs uppercase tracking-wider shadow-md shadow-[#FF4B72]/25 transition-all active:scale-[0.99] mt-1"
+                >
+                  {isSubmitting ? 'Creating Vault...' : 'Sign Up'}
+                </button>
+              </form>
+
+              {/* OR Divider */}
+              <div className="relative my-2 text-center">
+                <span className="text-[10px] text-stone-400 font-sans uppercase font-bold tracking-wider">
+                  OR
+                </span>
+              </div>
+
+              {/* Apple Button */}
+              <button
+                type="button"
+                onClick={handleBiometricAuth}
+                className="w-full py-2.5 rounded-full bg-white hover:bg-stone-50 border border-stone-300 text-stone-900 font-bold text-xs flex items-center justify-center gap-2 shadow-2xs transition-all"
               >
-                {/* Header (From Screenshot) */}
-                <div className="flex flex-col items-center text-center pt-1">
-                  {/* Glowing Couple Heart Emblem */}
-                  <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-tr from-[#FF2E93] via-[#E11D74] to-[#F472B6] border-2 border-white/40 flex items-center justify-center shadow-lg p-2.5 mb-1.5">
-                    <svg viewBox="0 0 100 100" className="w-full h-full fill-white drop-shadow-sm">
-                      <path d="M50 88 Q10 55 10 30 A20 20 0 0 1 50 20 A20 20 0 0 1 90 30 Q90 55 50 88 Z" />
-                      <circle cx="43" cy="40" r="5" fill="#8B1A54" />
-                      <circle cx="57" cy="40" r="5" fill="#8B1A54" />
-                      <path d="M38 55 Q43 48 48 55 Z" fill="#8B1A54" />
-                      <path d="M52 55 Q57 48 62 55 Z" fill="#8B1A54" />
-                    </svg>
-                  </div>
+                <svg className="w-4 h-4 fill-current" viewBox="0 0 170 170">
+                  <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.69-3.08-7.7-7.91-12.03-14.49-6.03-9.14-10.82-20.08-14.37-32.8-3.55-12.72-5.32-24.52-5.32-35.4 0-14.6 3.69-26.65 11.08-36.14 7.39-9.49 16.5-14.36 27.34-14.61 5.35 0 11.26 1.41 17.73 4.23 6.47 2.82 10.59 4.31 12.35 4.47 1.45 0 5.86-1.61 13.23-4.83 7.37-3.22 13.54-4.53 18.52-3.92 13.73 1.09 24.32 6.51 31.78 16.27-12.28 7.4-18.3 17.43-18.06 30.1.24 9.9 4.08 18.15 11.51 24.76 7.43 6.61 16.32 10.37 26.67 11.27-2.3 7.08-5.29 14.54-8.97 22.37zM119.22 31.84c0-7.2 2.66-14.07 7.99-20.61 5.33-6.54 11.97-10.65 19.92-12.33.24 1.46.36 2.79.36 3.99 0 7.23-2.85 14.12-8.55 20.67-5.7 6.55-12.44 10.45-20.22 11.7-.24-1.34-.36-2.48-.36-3.42z" />
+                </svg>
+                <span>Continue with apple</span>
+              </button>
+            </motion.div>
+          )}
 
-                  <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-                    Create an account
-                  </h1>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sound.playSoftClick();
-                      setCurrentScreen('login');
-                    }}
-                    className="text-xs text-white/70 hover:text-white underline mt-0.5"
-                  >
-                    Already have an account
-                  </button>
+          {/* ================= SCREEN 2: WELCOME / INTRO (From Screenshot) ================= */}
+          {screenMode === 'welcome' && (
+            <motion.div
+              key="welcome"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              className="flex-1 flex flex-col justify-between py-2 text-center"
+            >
+              {/* Center Lightning / Heart Badge (From Screenshot) */}
+              <div className="flex flex-col items-center">
+                <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-[#FF5E8E] to-[#FF4B72] flex items-center justify-center text-white shadow-md shadow-[#FF4B72]/30 mb-3">
+                  <Zap className="w-7 h-7 fill-white text-white" />
                 </div>
 
-                {/* Sign Up Form + PROFILE PHOTO SET OPTION */}
-                <div className="my-auto py-1">
-                  <form onSubmit={handleSignUpSubmit} className="space-y-2.5">
-                    
-                    {/* ====== PROFILE PHOTO UPLOADER (User's specific request) ====== */}
-                    <div className="p-3 rounded-2xl bg-white/10 border border-white/20 flex flex-col items-center text-center">
-                      <span className="text-[10px] text-pink-300 font-mono uppercase tracking-wider block mb-1.5 font-bold">
-                        Set Your Profile Photo
-                      </span>
+                <h2 className="text-2xl font-black text-stone-900 tracking-tight">
+                  Meet. Match. Chat.
+                </h2>
+                <p className="text-xs text-stone-500 font-sans mt-1 max-w-[240px]">
+                  Connect with your partner around you - it's that easy.
+                </p>
+              </div>
 
-                      <div className="relative group cursor-pointer mb-2" onClick={() => fileInputRef.current?.click()}>
-                        <div className="w-16 h-16 rounded-full p-0.5 bg-gradient-to-tr from-[#FF2E93] via-[#E11D74] to-[#A855F7] shadow-pink-glow">
-                          <img
-                            src={myProfilePhoto}
-                            alt="Profile Avatar"
-                            className="w-full h-full object-cover rounded-full"
-                          />
-                        </div>
-                        <div className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Camera className="w-5 h-5 text-white" />
-                        </div>
-                        <div className="absolute bottom-0 right-0 w-5 h-5 rounded-full bg-[#FF2E93] border-2 border-white flex items-center justify-center text-white shadow-sm">
-                          <Camera className="w-2.5 h-2.5" />
-                        </div>
-                      </div>
+              {/* Action Buttons */}
+              <div className="space-y-3 pt-6">
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.playSoftClick();
+                    setScreenMode('login');
+                  }}
+                  className="w-full py-3.5 rounded-full bg-gradient-to-r from-[#FF5E8E] to-[#FF4B72] text-white font-bold text-xs uppercase tracking-wider shadow-md hover:opacity-95 transition-all"
+                >
+                  Login with Your Email
+                </button>
 
-                      {/* Hidden File Input for Device Image Upload */}
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) => handlePhotoUpload(e, 'me')}
-                      />
+                <button
+                  type="button"
+                  onClick={handleBiometricAuth}
+                  className="w-full py-3 rounded-full bg-white hover:bg-stone-50 border border-stone-300 text-stone-900 font-bold text-xs flex items-center justify-center gap-2 shadow-2xs transition-all"
+                >
+                  <svg className="w-4 h-4 fill-current" viewBox="0 0 170 170">
+                    <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.69-3.08-7.7-7.91-12.03-14.49-6.03-9.14-10.82-20.08-14.37-32.8-3.55-12.72-5.32-24.52-5.32-35.4 0-14.6 3.69-26.65 11.08-36.14 7.39-9.49 16.5-14.36 27.34-14.61 5.35 0 11.26 1.41 17.73 4.23 6.47 2.82 10.59 4.31 12.35 4.47 1.45 0 5.86-1.61 13.23-4.83 7.37-3.22 13.54-4.53 18.52-3.92 13.73 1.09 24.32 6.51 31.78 16.27-12.28 7.4-18.3 17.43-18.06 30.1.24 9.9 4.08 18.15 11.51 24.76 7.43 6.61 16.32 10.37 26.67 11.27-2.3 7.08-5.29 14.54-8.97 22.37zM119.22 31.84c0-7.2 2.66-14.07 7.99-20.61 5.33-6.54 11.97-10.65 19.92-12.33.24 1.46.36 2.79.36 3.99 0 7.23-2.85 14.12-8.55 20.67-5.7 6.55-12.44 10.45-20.22 11.7-.24-1.34-.36-2.48-.36-3.42z" />
+                  </svg>
+                  <span>Continue with apple</span>
+                </button>
+              </div>
+            </motion.div>
+          )}
 
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="text-[11px] text-white hover:text-pink-300 font-semibold underline flex items-center gap-1 mb-2"
-                      >
-                        <Upload className="w-3 h-3" />
-                        <span>Upload photo from phone</span>
-                      </button>
+          {/* Footer Controls & Reset Demo */}
+          <div className="pt-2 border-t border-stone-100 flex items-center justify-between text-[10px] text-stone-400 font-mono mt-1 shrink-0">
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setScreenMode('login')}
+                className={`hover:text-stone-700 ${screenMode === 'login' ? 'font-bold text-[#FF4B72]' : ''}`}
+              >
+                Log in
+              </button>
+              <span>•</span>
+              <button
+                type="button"
+                onClick={() => setScreenMode('welcome')}
+                className={`hover:text-stone-700 ${screenMode === 'welcome' ? 'font-bold text-[#FF4B72]' : ''}`}
+              >
+                Intro
+              </button>
+              <span>•</span>
+              <button
+                type="button"
+                onClick={() => setScreenMode('signup')}
+                className={`hover:text-stone-700 ${screenMode === 'signup' ? 'font-bold text-[#FF4B72]' : ''}`}
+              >
+                Sign up
+              </button>
+            </div>
 
-                      {/* Preset Avatars Fast Selector */}
-                      <div className="flex items-center gap-1.5">
-                        {PRESET_AVATARS.map((avatarUrl, i) => (
-                          <button
-                            key={i}
-                            type="button"
-                            onClick={() => {
-                              sound.playSoftClick();
-                              setMyProfilePhoto(avatarUrl);
-                            }}
-                            className={`w-7 h-7 rounded-full overflow-hidden border-2 transition-all ${
-                              myProfilePhoto === avatarUrl
-                                ? 'border-[#FF2E93] scale-110 shadow-pink-glow'
-                                : 'border-white/30 opacity-70 hover:opacity-100'
-                            }`}
-                          >
-                            <img src={avatarUrl} alt={`Avatar ${i}`} className="w-full h-full object-cover" />
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Email Input */}
-                    <div>
-                      <label className="text-[11px] text-white/80 font-medium block mb-1">
-                        Email
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="jaedoe75@gmail.com"
-                        value={signUpEmail}
-                        onChange={(e) => setSignUpEmail(e.target.value)}
-                        className="w-full px-4 py-2.5 rounded-2xl bg-white/15 border border-white/20 text-white placeholder-white/40 text-xs focus:outline-none focus:border-[#FF2E93]"
-                      />
-                    </div>
-
-                    {/* Password / PIN Input */}
-                    <div>
-                      <label className="text-[11px] text-white/80 font-medium block mb-1">
-                        Password (4-digit PIN)
-                      </label>
-                      <input
-                        type="password"
-                        maxLength={4}
-                        required
-                        placeholder="•••• (e.g. 1404)"
-                        value={signUpPassword}
-                        onChange={(e) => setSignUpPassword(e.target.value.replace(/\D/g, ''))}
-                        className="w-full px-4 py-2.5 rounded-2xl bg-white/15 border border-white/20 text-white placeholder-white/40 font-mono text-xs focus:outline-none focus:border-[#FF2E93]"
-                      />
-                    </div>
-
-                    {/* Partner Name & PIN Inputs */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[10px] text-white/80 font-medium block mb-1">
-                          Partner's Name
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          placeholder="e.g. Ananya"
-                          value={signUpPartnerName}
-                          onChange={(e) => setSignUpPartnerName(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl bg-white/15 border border-white/20 text-white text-xs focus:outline-none focus:border-[#FF2E93]"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] text-white/80 font-medium block mb-1">
-                          Partner's PIN
-                        </label>
-                        <input
-                          type="password"
-                          maxLength={4}
-                          placeholder="2512"
-                          value={signUpPartnerPin}
-                          onChange={(e) => setSignUpPartnerPin(e.target.value.replace(/\D/g, ''))}
-                          className="w-full px-3 py-2 rounded-xl bg-white/15 border border-white/20 text-white text-xs font-mono focus:outline-none focus:border-[#FF2E93]"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Remember me Checkbox (From Screenshot) */}
-                    <div className="flex items-center text-xs text-white/80 pt-0.5">
-                      <label className="flex items-center gap-1.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={signUpRememberMe}
-                          onChange={(e) => setSignUpRememberMe(e.target.checked)}
-                          className="w-3.5 h-3.5 rounded accent-[#FF2E93]"
-                        />
-                        <span>Remember me</span>
-                      </label>
-                    </div>
-
-                    {/* Error message */}
-                    {signUpError && (
-                      <p className="text-[11px] text-red-300 font-sans text-center">
-                        {signUpError}
-                      </p>
-                    )}
-
-                    {/* Sign Up Button (From Screenshot) */}
-                    <button
-                      type="submit"
-                      disabled={isSubmitting}
-                      className="w-full py-3.5 px-6 rounded-full bg-gradient-to-r from-[#D946EF] via-[#EC4899] to-[#8B5CF6] text-white font-bold text-sm tracking-wide shadow-lg hover:shadow-pink-glow transition-all active:scale-[0.99] mt-1"
-                    >
-                      {isSubmitting ? 'Creating Vault...' : 'Sign Up'}
-                    </button>
-                  </form>
-
-                  {/* Divider: "Or Sign in With" */}
-                  <div className="relative my-3 text-center">
-                    <span className="text-[11px] text-white/60 font-sans">
-                      Or Sign in With
-                    </span>
-                  </div>
-
-                  {/* Social Circles */}
-                  <div className="flex items-center justify-center gap-4">
-                    <button
-                      type="button"
-                      onClick={() => handleQuickSelect('partner1')}
-                      className="w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 border border-white/20 flex items-center justify-center text-white"
-                    >
-                      <span className="font-bold text-xs">f</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleQuickSelect('partner1')}
-                      className="w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 border border-white/20 flex items-center justify-center"
-                    >
-                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
-                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                      </svg>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleAppleLogin}
-                      className="w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 border border-white/20 flex items-center justify-center text-white"
-                    >
-                      <svg className="w-3.5 h-3.5 fill-white" viewBox="0 0 170 170">
-                        <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.69-3.08-7.7-7.91-12.03-14.49-6.03-9.14-10.82-20.08-14.37-32.8-3.55-12.72-5.32-24.52-5.32-35.4 0-14.6 3.69-26.65 11.08-36.14 7.39-9.49 16.5-14.36 27.34-14.61 5.35 0 11.26 1.41 17.73 4.23 6.47 2.82 10.59 4.31 12.35 4.47 1.45 0 5.86-1.61 13.23-4.83 7.37-3.22 13.54-4.53 18.52-3.92 13.73 1.09 24.32 6.51 31.78 16.27-12.28 7.4-18.3 17.43-18.06 30.1.24 9.9 4.08 18.15 11.51 24.76 7.43 6.61 16.32 10.37 26.67 11.27-2.3 7.08-5.29 14.54-8.97 22.37zM119.22 31.84c0-7.2 2.66-14.07 7.99-20.61 5.33-6.54 11.97-10.65 19.92-12.33.24 1.46.36 2.79.36 3.99 0 7.23-2.85 14.12-8.55 20.67-5.7 6.55-12.44 10.45-20.22 11.7-.24-1.34-.36-2.48-.36-3.42z" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Bottom Link back to Login */}
-                <div className="pt-2 text-center text-xs text-white/70">
-                  Already have an account?{' '}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sound.playSoftClick();
-                      setCurrentScreen('login');
-                    }}
-                    className="font-bold text-white hover:text-pink-300 underline"
-                  >
-                    Login here
-                  </button>
-                </div>
-              </motion.div>
-            )}
-
-          </AnimatePresence>
-        </div>
-
-        {/* Footer Navigation Bar (To switch between Showcase, Login, Sign Up & Reset Demo) */}
-        <div className="relative z-20 px-6 py-2.5 bg-black/30 border-t border-white/10 flex items-center justify-between text-[11px] text-white/60">
-          <div className="flex items-center gap-2">
             <button
-              onClick={() => {
-                sound.playSoftClick();
-                setCurrentScreen('showcase');
-              }}
-              className={`hover:text-white transition-colors ${currentScreen === 'showcase' ? 'text-pink-300 font-bold' : ''}`}
+              type="button"
+              onClick={handleResetDemo}
+              className="hover:text-stone-700 underline transition-colors"
             >
-              Showcase
-            </button>
-            <span>•</span>
-            <button
-              onClick={() => {
-                sound.playSoftClick();
-                setCurrentScreen('login');
-              }}
-              className={`hover:text-white transition-colors ${currentScreen === 'login' ? 'text-pink-300 font-bold' : ''}`}
-            >
-              Login
-            </button>
-            <span>•</span>
-            <button
-              onClick={() => {
-                sound.playSoftClick();
-                setCurrentScreen('signup');
-              }}
-              className={`hover:text-white transition-colors ${currentScreen === 'signup' ? 'text-pink-300 font-bold' : ''}`}
-            >
-              Sign Up
+              Reset Demo
             </button>
           </div>
 
-          <button
-            onClick={handleResetToDemo}
-            className="hover:text-white flex items-center gap-1 font-mono transition-colors"
-            title="Reset to default Aarav & Ananya demo"
-          >
-            <RefreshCw className="w-2.5 h-2.5" />
-            <span>Reset Demo</span>
-          </button>
         </div>
 
       </div>
