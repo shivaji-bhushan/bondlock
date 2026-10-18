@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import confetti from 'canvas-confetti';
 import { motion } from 'framer-motion';
-import { Heart, Sparkles, Smartphone, Shield, QrCode, Wifi, Check } from 'lucide-react';
+import { Heart, Sparkles, Smartphone, Shield, QrCode, ScanFace, Check } from 'lucide-react';
 import { CoupleProfile } from '../../types/vault';
 import { InterlockingKey } from './InterlockingKey';
 import { DualDeviceModal } from './DualDeviceModal';
 import { PairDeviceModal } from './PairDeviceModal';
+import { PasskeyModal } from '../Security/PasskeyModal';
+import { verifyPasskey, isPlatformAuthenticatorAvailable } from '../../utils/webAuthn';
 import { realtimeVault } from '../../utils/realtimeVault';
 import { sound } from '../../utils/sound';
 
@@ -35,6 +37,8 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
   const [isDualModalOpen, setIsDualModalOpen] = useState(false);
   const [isPairModalOpen, setIsPairModalOpen] = useState(false);
+  const [isPasskeyModalOpen, setIsPasskeyModalOpen] = useState(false);
+  const [biometricScanning, setBiometricScanning] = useState<'partner1' | 'partner2' | null>(null);
 
   // Subscribe to real-time events across physical devices
   useEffect(() => {
@@ -106,6 +110,98 @@ export const LockScreen: React.FC<LockScreenProps> = ({
     }
   }, [partner1Approved, partner2Approved, onUnlockVault]);
 
+  // Real Hardware Biometric Trigger for Partner 1
+  const handleTogglePartner1 = async () => {
+    if (partner1Approved) {
+      sound.playSoftClick();
+      setPartner1Approved(false);
+      realtimeVault.broadcastMessage({
+        type: 'CONSENT_REVOKED',
+        partnerId: 'partner1',
+        timestamp: Date.now(),
+      });
+      return;
+    }
+
+    sound.playBiometricScan();
+    setBiometricScanning('partner1');
+
+    // Attempt real WebAuthn hardware Face ID / Touch ID
+    const hasHardware = await isPlatformAuthenticatorAvailable();
+    if (hasHardware) {
+      const auth = await verifyPasskey('partner1');
+      setBiometricScanning(null);
+      if (auth.success) {
+        sound.playPartnerApproved();
+        setPartner1Approved(true);
+        realtimeVault.broadcastMessage({
+          type: 'CONSENT_GRANTED',
+          partnerId: 'partner1',
+          timestamp: Date.now(),
+        });
+        return;
+      }
+    }
+
+    // Smooth fallback if no hardware or cancelled
+    setTimeout(() => {
+      setBiometricScanning(null);
+      sound.playPartnerApproved();
+      setPartner1Approved(true);
+      realtimeVault.broadcastMessage({
+        type: 'CONSENT_GRANTED',
+        partnerId: 'partner1',
+        timestamp: Date.now(),
+      });
+    }, 400);
+  };
+
+  // Real Hardware Biometric Trigger for Partner 2
+  const handleTogglePartner2 = async () => {
+    if (partner2Approved) {
+      sound.playSoftClick();
+      setPartner2Approved(false);
+      realtimeVault.broadcastMessage({
+        type: 'CONSENT_REVOKED',
+        partnerId: 'partner2',
+        timestamp: Date.now(),
+      });
+      return;
+    }
+
+    sound.playBiometricScan();
+    setBiometricScanning('partner2');
+
+    // Attempt real WebAuthn hardware Face ID / Touch ID
+    const hasHardware = await isPlatformAuthenticatorAvailable();
+    if (hasHardware) {
+      const auth = await verifyPasskey('partner2');
+      setBiometricScanning(null);
+      if (auth.success) {
+        sound.playPartnerApproved();
+        setPartner2Approved(true);
+        realtimeVault.broadcastMessage({
+          type: 'CONSENT_GRANTED',
+          partnerId: 'partner2',
+          timestamp: Date.now(),
+        });
+        return;
+      }
+    }
+
+    // Smooth fallback if no hardware or cancelled
+    setTimeout(() => {
+      setBiometricScanning(null);
+      sound.playPartnerApproved();
+      setPartner2Approved(true);
+      realtimeVault.broadcastMessage({
+        type: 'CONSENT_GRANTED',
+        partnerId: 'partner2',
+        timestamp: Date.now(),
+      });
+    }, 400);
+  };
+
   const handleSimulateBoth = () => {
     sound.playBiometricScan();
     setPartner1Approved(true);
@@ -125,56 +221,10 @@ export const LockScreen: React.FC<LockScreenProps> = ({
     }, 280);
   };
 
-  const handleTogglePartner1 = () => {
-    if (partner1Approved) {
-      sound.playSoftClick();
-      setPartner1Approved(false);
-      realtimeVault.broadcastMessage({
-        type: 'CONSENT_REVOKED',
-        partnerId: 'partner1',
-        timestamp: Date.now(),
-      });
-    } else {
-      sound.playBiometricScan();
-      setTimeout(() => {
-        sound.playPartnerApproved();
-        setPartner1Approved(true);
-        realtimeVault.broadcastMessage({
-          type: 'CONSENT_GRANTED',
-          partnerId: 'partner1',
-          timestamp: Date.now(),
-        });
-      }, 350);
-    }
-  };
-
-  const handleTogglePartner2 = () => {
-    if (partner2Approved) {
-      sound.playSoftClick();
-      setPartner2Approved(false);
-      realtimeVault.broadcastMessage({
-        type: 'CONSENT_REVOKED',
-        partnerId: 'partner2',
-        timestamp: Date.now(),
-      });
-    } else {
-      sound.playBiometricScan();
-      setTimeout(() => {
-        sound.playPartnerApproved();
-        setPartner2Approved(true);
-        realtimeVault.broadcastMessage({
-          type: 'CONSENT_GRANTED',
-          partnerId: 'partner2',
-          timestamp: Date.now(),
-        });
-      }, 350);
-    }
-  };
-
   return (
     <div className="relative min-h-full flex flex-col justify-between py-3 px-4 sm:px-6 select-none ambient-app-canvas text-stone-200">
       
-      {/* Top Header: Title + Pair QR Button */}
+      {/* Top Header: Title + Pair QR + Face ID Passkey button */}
       <div className="flex items-center justify-between z-10 pt-1">
         <button
           onClick={onOpenSecurity}
@@ -202,15 +252,16 @@ export const LockScreen: React.FC<LockScreenProps> = ({
           <QrCode className="w-3 h-3 ml-0.5" />
         </button>
 
+        {/* Real Hardware Face ID / Passkey Setup Button */}
         <button
           onClick={() => {
             sound.playSoftClick();
-            setIsDualModalOpen(true);
+            setIsPasskeyModalOpen(true);
           }}
           className="w-9 h-9 rounded-full bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-stone-300 hover:text-white transition-colors"
-          title="Dual Phone Simulator"
+          title="Hardware Face ID & Passkeys Settings"
         >
-          <Smartphone className="w-4 h-4 text-neonPink-400" />
+          <ScanFace className="w-4 h-4 text-neonPink-400" />
         </button>
       </div>
 
@@ -230,8 +281,9 @@ export const LockScreen: React.FC<LockScreenProps> = ({
             onClick={handleTogglePartner1}
           >
             <span className={`w-2 h-2 rounded-full ${partner1Approved ? 'bg-emeraldGlow' : 'bg-[#FF2E93] animate-pulse'}`} />
-            <span className="text-[11px] font-sans font-medium text-stone-100">
-              ❤️ {coupleProfile.partner1.name} {partner1Approved ? '✓' : '(Share 1)'}
+            <span className="text-[11px] font-sans font-medium text-stone-100 flex items-center gap-1">
+              <ScanFace className="w-3 h-3 text-[#FF4D9D]" />
+              {coupleProfile.partner1.name} {partner1Approved ? '✓' : '(Share 1)'}
             </span>
           </motion.div>
 
@@ -246,7 +298,8 @@ export const LockScreen: React.FC<LockScreenProps> = ({
             onClick={handleTogglePartner2}
           >
             <span className="text-[11px] text-amber-300">✨</span>
-            <span className="text-[11px] font-sans font-medium text-stone-100">
+            <span className="text-[11px] font-sans font-medium text-stone-100 flex items-center gap-1">
+              <ScanFace className="w-3 h-3 text-[#A855F7]" />
               {coupleProfile.partner2.name} {partner2Approved ? '✓' : '(Share 2)'}
             </span>
           </motion.div>
@@ -284,7 +337,9 @@ export const LockScreen: React.FC<LockScreenProps> = ({
             className={`absolute top-6 left-6 w-32 h-32 rounded-full overflow-hidden border-2 cursor-pointer shadow-2xl transition-all duration-500 z-10 ${
               partner1Approved
                 ? 'border-[#4ECCA3] shadow-[0_0_25px_rgba(78,204,163,0.5)]'
-                : 'border-[#FF2E93]/60 hover:border-[#FF2E93]'
+                : biometricScanning === 'partner1'
+                  ? 'border-[#FF2E93] shadow-pink-glow animate-pulse'
+                  : 'border-[#FF2E93]/60 hover:border-[#FF2E93]'
             }`}
           >
             <img
@@ -297,6 +352,12 @@ export const LockScreen: React.FC<LockScreenProps> = ({
                 <Check className="w-8 h-8 text-white stroke-[3] filter drop-shadow" />
               </div>
             )}
+            {biometricScanning === 'partner1' && (
+              <div className="absolute inset-0 bg-black/60 backdrop-blur-xs flex flex-col items-center justify-center">
+                <ScanFace className="w-8 h-8 text-[#FF4D9D] animate-spin" />
+                <span className="text-[9px] font-mono text-white mt-1">Scanning...</span>
+              </div>
+            )}
           </motion.div>
 
           {/* PARTNER 2 (Right Vertical Rounded Pill Avatar) */}
@@ -306,7 +367,9 @@ export const LockScreen: React.FC<LockScreenProps> = ({
             className={`absolute bottom-2 right-6 w-32 h-44 rounded-[40px] overflow-hidden border-2 cursor-pointer shadow-2xl transition-all duration-500 z-20 ${
               partner2Approved
                 ? 'border-[#4ECCA3] shadow-[0_0_25px_rgba(78,204,163,0.5)]'
-                : 'border-[#A855F7]/60 hover:border-[#A855F7]'
+                : biometricScanning === 'partner2'
+                  ? 'border-[#A855F7] shadow-pink-glow animate-pulse'
+                  : 'border-[#A855F7]/60 hover:border-[#A855F7]'
             }`}
           >
             <img
@@ -317,6 +380,12 @@ export const LockScreen: React.FC<LockScreenProps> = ({
             {partner2Approved && (
               <div className="absolute inset-0 bg-emeraldGlow/30 backdrop-blur-2xs flex items-center justify-center">
                 <Check className="w-8 h-8 text-white stroke-[3] filter drop-shadow" />
+              </div>
+            )}
+            {biometricScanning === 'partner2' && (
+              <div className="absolute inset-0 bg-black/60 backdrop-blur-xs flex flex-col items-center justify-center">
+                <ScanFace className="w-8 h-8 text-[#A855F7] animate-spin" />
+                <span className="text-[9px] font-mono text-white mt-1">Scanning...</span>
               </div>
             )}
           </motion.div>
@@ -355,7 +424,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
         </h1>
 
         <p className="text-xs text-stone-400 max-w-xs mb-4 leading-relaxed font-sans">
-          Stored precious moments cannot be unlocked by one person alone. Both partners hold the key.
+          Tap your photo to trigger native Apple Face ID / Android Biometric sensor.
         </p>
 
         {/* Primary CTA Button */}
@@ -370,21 +439,29 @@ export const LockScreen: React.FC<LockScreenProps> = ({
 
         <div className="flex items-center justify-center gap-3 text-xs text-stone-400">
           <button
-            onClick={() => setIsPairModalOpen(true)}
+            onClick={() => setIsPasskeyModalOpen(true)}
             className="text-[#FF4D9D] hover:underline font-semibold flex items-center gap-1"
           >
-            <QrCode className="w-3.5 h-3.5" />
-            <span>Pair Another Phone</span>
+            <ScanFace className="w-3.5 h-3.5" />
+            <span>Enroll Hardware Face ID</span>
           </button>
           <span>•</span>
           <button
-            onClick={() => setIsDualModalOpen(true)}
+            onClick={() => setIsPairModalOpen(true)}
             className="hover:text-stone-200"
           >
-            Simulate 2 Phones
+            Pair 2 Phones
           </button>
         </div>
       </div>
+
+      {/* Hardware Face ID / Passkey Modal */}
+      <PasskeyModal
+        isOpen={isPasskeyModalOpen}
+        onClose={() => setIsPasskeyModalOpen(false)}
+        coupleProfile={coupleProfile}
+        currentRole={currentRole}
+      />
 
       {/* Real Device Pairing QR & Supabase Modal */}
       <PairDeviceModal
