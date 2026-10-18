@@ -11,6 +11,7 @@ import { PartnerSettingsModal } from './components/Security/PartnerSettingsModal
 import { storage } from './utils/storage';
 import { Memory, CoupleProfile, SecuritySettings } from './types/vault';
 import { sound } from './utils/sound';
+import { realtimeVault } from './utils/realtimeVault';
 import { ShieldAlert, KeyRound } from 'lucide-react';
 
 export function App() {
@@ -24,6 +25,56 @@ export function App() {
 
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+
+  // Real-time Room & Cross-Device Pairing State
+  const [roomCode, setRoomCode] = useState<string>('BOND-8821');
+  const [currentRole, setCurrentRole] = useState<'partner1' | 'partner2'>('partner1');
+  const [partnerConnected, setPartnerConnected] = useState(false);
+
+  // Parse URL search parameters (?pair=BOND-XXXX&role=partner2)
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const pairParam = params.get('pair');
+      const roleParam = params.get('role');
+
+      const activeCode = pairParam ? pairParam.toUpperCase() : 'BOND-8821';
+      const activeRole = roleParam === 'partner2' ? 'partner2' : 'partner1';
+
+      setRoomCode(activeCode);
+      setCurrentRole(activeRole);
+
+      realtimeVault.initialize(activeCode, activeRole);
+    } catch (e) {
+      realtimeVault.initialize('BOND-8821', 'partner1');
+    }
+
+    return () => realtimeVault.cleanup();
+  }, []);
+
+  // Listen for Real-Time synchronization messages
+  useEffect(() => {
+    const unsubscribe = realtimeVault.onMessage((msg) => {
+      if (msg.type === 'PARTNER_JOINED') {
+        setPartnerConnected(true);
+      } else if (msg.type === 'PANIC_LOCK') {
+        sound.playPanicLock();
+        setIsUnlocked(false);
+        setActiveTab('lock');
+      } else if (msg.type === 'NEW_MEMORY' && msg.payload) {
+        sound.playPartnerApproved();
+        setMemories((prev) => {
+          const exists = prev.some((m) => m.id === msg.payload.id);
+          if (exists) return prev;
+          const updated = [msg.payload, ...prev];
+          storage.saveMemories(updated);
+          return updated;
+        });
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   // Sync mute state on mount
   useEffect(() => {
@@ -39,18 +90,22 @@ export function App() {
   const handlePanicLock = () => {
     setIsUnlocked(false);
     setActiveTab('lock');
+    realtimeVault.sendPanicLock();
   };
 
   const handleSessionExpired = () => {
     sound.playPanicLock();
     setIsUnlocked(false);
     setActiveTab('lock');
+    realtimeVault.sendPanicLock();
   };
 
   const handleAddMemory = (newMemory: Memory) => {
     const updated = [newMemory, ...memories];
     setMemories(updated);
     storage.saveMemories(updated);
+    // Broadcast to partner's phone in real-time!
+    realtimeVault.sendNewMemory(newMemory);
   };
 
   const handleDeleteMemory = (id: string) => {
@@ -73,6 +128,7 @@ export function App() {
     setIsFrozen(true);
     setIsUnlocked(false);
     storage.setFrozen(true);
+    realtimeVault.sendPanicLock();
   };
 
   const handleUnfreeze = () => {
@@ -89,6 +145,11 @@ export function App() {
     setIsFrozen(false);
     setIsUnlocked(false);
     setActiveTab('lock');
+  };
+
+  const handleChangeRole = (newRole: 'partner1' | 'partner2') => {
+    setCurrentRole(newRole);
+    realtimeVault.setRole(newRole);
   };
 
   // Render the current view in Single Device Mode
@@ -124,13 +185,16 @@ export function App() {
     }
 
     if (!isUnlocked && activeTab !== 'lock') {
-      // Prompt user to unlock first if trying to browse locked vault tabs
       return (
         <LockScreen
           coupleProfile={coupleProfile}
           onUnlockVault={handleUnlockVault}
           onOpenSecurity={() => setIsSecurityModalOpen(true)}
           onOpenSettings={() => setIsSettingsModalOpen(true)}
+          currentRole={currentRole}
+          onChangeRole={handleChangeRole}
+          roomCode={roomCode}
+          partnerConnected={partnerConnected}
         />
       );
     }
@@ -185,12 +249,16 @@ export function App() {
             onUnlockVault={handleUnlockVault}
             onOpenSecurity={() => setIsSecurityModalOpen(true)}
             onOpenSettings={() => setIsSettingsModalOpen(true)}
+            currentRole={currentRole}
+            onChangeRole={handleChangeRole}
+            roomCode={roomCode}
+            partnerConnected={partnerConnected}
           />
         );
     }
   };
 
-  // Render 3-Screen Panorama Content matching user reference screenshot
+  // Render 3-Screen Panorama Content
   const renderPanoramaContent = () => {
     return (
       <div className="flex flex-col lg:flex-row items-center justify-center gap-6 lg:gap-8 overflow-x-auto py-4 px-2 select-none">
@@ -201,7 +269,6 @@ export function App() {
             Screen 1 • Dual-Approval Hero Lock
           </span>
           <div className="relative w-[340px] sm:w-[360px] h-[720px] bg-[#120317] rounded-[48px] shadow-phone-frame border-[7px] border-[#380E45] flex flex-col overflow-hidden ring-1 ring-white/20">
-            {/* Notch */}
             <div className="flex items-center justify-between px-6 pt-2.5 pb-1 select-none">
               <span className="text-[11px] font-semibold text-stone-200">9:41</span>
               <div className="w-20 h-4 rounded-full bg-black border border-white/10" />
@@ -213,9 +280,12 @@ export function App() {
                 onUnlockVault={handleUnlockVault}
                 onOpenSecurity={() => setIsSecurityModalOpen(true)}
                 onOpenSettings={() => setIsSettingsModalOpen(true)}
+                currentRole={currentRole}
+                onChangeRole={handleChangeRole}
+                roomCode={roomCode}
+                partnerConnected={partnerConnected}
               />
             </div>
-            {/* Home bar */}
             <div className="flex justify-center pb-1.5 pt-1 bg-[#16051C]">
               <div className="w-28 h-1 rounded-full bg-white/25" />
             </div>
@@ -228,7 +298,6 @@ export function App() {
             Screen 2 • Precious Moments Feed
           </span>
           <div className="relative w-[340px] sm:w-[360px] h-[720px] bg-[#120317] rounded-[48px] shadow-phone-frame border-[7px] border-[#380E45] flex flex-col overflow-hidden ring-1 ring-white/20">
-            {/* Notch */}
             <div className="flex items-center justify-between px-6 pt-2.5 pb-1 select-none">
               <span className="text-[11px] font-semibold text-stone-200">9:41</span>
               <div className="w-20 h-4 rounded-full bg-black border border-white/10" />
@@ -251,7 +320,6 @@ export function App() {
               onSelectTab={(t) => setActiveTab(t)}
               isUnlocked={isUnlocked}
             />
-            {/* Home bar */}
             <div className="flex justify-center pb-1.5 pt-1 bg-[#16051C]">
               <div className="w-28 h-1 rounded-full bg-white/25" />
             </div>
@@ -264,7 +332,6 @@ export function App() {
             Screen 3 • Security & Trust Profile
           </span>
           <div className="relative w-[340px] sm:w-[360px] h-[720px] bg-[#120317] rounded-[48px] shadow-phone-frame border-[7px] border-[#380E45] flex flex-col overflow-hidden ring-1 ring-white/20">
-            {/* Notch */}
             <div className="flex items-center justify-between px-6 pt-2.5 pb-1 select-none">
               <span className="text-[11px] font-semibold text-stone-200">9:41</span>
               <div className="w-20 h-4 rounded-full bg-black border border-white/10" />
@@ -285,7 +352,6 @@ export function App() {
               onSelectTab={(t) => setActiveTab(t)}
               isUnlocked={isUnlocked}
             />
-            {/* Home bar */}
             <div className="flex justify-center pb-1.5 pt-1 bg-[#16051C]">
               <div className="w-28 h-1 rounded-full bg-white/25" />
             </div>
@@ -306,20 +372,14 @@ export function App() {
       onChangeViewMode={setViewMode}
       panoramaContent={renderPanoramaContent()}
     >
-      {/* Active Screen Canvas */}
       <div className="flex-1 flex flex-col overflow-y-auto">
         {renderCurrentScreen()}
       </div>
 
-      {/* Bottom Nav Bar (Dock) when in Single Mobile View */}
       {viewMode === 'single' && !isFrozen && (
         <BottomNav
           activeTab={activeTab}
           onSelectTab={(tab) => {
-            if (!isUnlocked && tab !== 'lock') {
-              sound.playSoftClick();
-              // Can browse, but LockScreen will request dual biometric if locked
-            }
             setActiveTab(tab);
           }}
           isUnlocked={isUnlocked}

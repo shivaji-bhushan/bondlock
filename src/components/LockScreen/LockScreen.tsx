@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import confetti from 'canvas-confetti';
 import { motion } from 'framer-motion';
-import { Heart, Sparkles, Smartphone, Shield, ScanFace, Fingerprint, Check, Info, Lock } from 'lucide-react';
+import { Heart, Sparkles, Smartphone, Shield, QrCode, Wifi, Check } from 'lucide-react';
 import { CoupleProfile } from '../../types/vault';
 import { InterlockingKey } from './InterlockingKey';
 import { DualDeviceModal } from './DualDeviceModal';
+import { PairDeviceModal } from './PairDeviceModal';
+import { realtimeVault } from '../../utils/realtimeVault';
 import { sound } from '../../utils/sound';
 
 interface LockScreenProps {
@@ -12,6 +14,10 @@ interface LockScreenProps {
   onUnlockVault: () => void;
   onOpenSecurity: () => void;
   onOpenSettings: () => void;
+  currentRole?: 'partner1' | 'partner2';
+  onChangeRole?: (role: 'partner1' | 'partner2') => void;
+  roomCode?: string;
+  partnerConnected?: boolean;
 }
 
 export const LockScreen: React.FC<LockScreenProps> = ({
@@ -19,11 +25,37 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   onUnlockVault,
   onOpenSecurity,
   onOpenSettings,
+  currentRole = 'partner1',
+  onChangeRole = () => {},
+  roomCode = 'BOND-8821',
+  partnerConnected = false,
 }) => {
   const [partner1Approved, setPartner1Approved] = useState(false);
   const [partner2Approved, setPartner2Approved] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
   const [isDualModalOpen, setIsDualModalOpen] = useState(false);
+  const [isPairModalOpen, setIsPairModalOpen] = useState(false);
+
+  // Subscribe to real-time events across physical devices
+  useEffect(() => {
+    const unsubscribe = realtimeVault.onMessage((msg) => {
+      if (msg.type === 'CONSENT_GRANTED') {
+        sound.playPartnerApproved();
+        if (msg.partnerId === 'partner1') setPartner1Approved(true);
+        if (msg.partnerId === 'partner2') setPartner2Approved(true);
+      } else if (msg.type === 'CONSENT_REVOKED') {
+        sound.playSoftClick();
+        if (msg.partnerId === 'partner1') setPartner1Approved(false);
+        if (msg.partnerId === 'partner2') setPartner2Approved(false);
+      } else if (msg.type === 'PANIC_LOCK') {
+        sound.playPanicLock();
+        setPartner1Approved(false);
+        setPartner2Approved(false);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   // 30-second security window when only one partner approves
   useEffect(() => {
@@ -35,6 +67,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
           if (prev === null || prev <= 1) {
             setPartner1Approved(false);
             setPartner2Approved(false);
+            realtimeVault.sendConsent(false);
             return null;
           }
           return prev - 1;
@@ -76,8 +109,19 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   const handleSimulateBoth = () => {
     sound.playBiometricScan();
     setPartner1Approved(true);
+    realtimeVault.broadcastMessage({
+      type: 'CONSENT_GRANTED',
+      partnerId: 'partner1',
+      timestamp: Date.now(),
+    });
+
     setTimeout(() => {
       setPartner2Approved(true);
+      realtimeVault.broadcastMessage({
+        type: 'CONSENT_GRANTED',
+        partnerId: 'partner2',
+        timestamp: Date.now(),
+      });
     }, 280);
   };
 
@@ -85,11 +129,21 @@ export const LockScreen: React.FC<LockScreenProps> = ({
     if (partner1Approved) {
       sound.playSoftClick();
       setPartner1Approved(false);
+      realtimeVault.broadcastMessage({
+        type: 'CONSENT_REVOKED',
+        partnerId: 'partner1',
+        timestamp: Date.now(),
+      });
     } else {
       sound.playBiometricScan();
       setTimeout(() => {
         sound.playPartnerApproved();
         setPartner1Approved(true);
+        realtimeVault.broadcastMessage({
+          type: 'CONSENT_GRANTED',
+          partnerId: 'partner1',
+          timestamp: Date.now(),
+        });
       }, 350);
     }
   };
@@ -98,85 +152,106 @@ export const LockScreen: React.FC<LockScreenProps> = ({
     if (partner2Approved) {
       sound.playSoftClick();
       setPartner2Approved(false);
+      realtimeVault.broadcastMessage({
+        type: 'CONSENT_REVOKED',
+        partnerId: 'partner2',
+        timestamp: Date.now(),
+      });
     } else {
       sound.playBiometricScan();
       setTimeout(() => {
         sound.playPartnerApproved();
         setPartner2Approved(true);
+        realtimeVault.broadcastMessage({
+          type: 'CONSENT_GRANTED',
+          partnerId: 'partner2',
+          timestamp: Date.now(),
+        });
       }, 350);
     }
   };
 
   return (
-    <div className="relative min-h-full flex flex-col justify-between py-4 px-4 sm:px-6 select-none ambient-app-canvas text-stone-200">
+    <div className="relative min-h-full flex flex-col justify-between py-3 px-4 sm:px-6 select-none ambient-app-canvas text-stone-200">
       
-      {/* Top Header matching reference image: Title 'BondLock' */}
+      {/* Top Header: Title + Pair QR Button */}
       <div className="flex items-center justify-between z-10 pt-1">
         <button
           onClick={onOpenSecurity}
-          className="w-9 h-9 rounded-full bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-stone-300 hover:text-white hover:bg-white/15 transition-colors"
-          title="Security Specs"
+          className="w-9 h-9 rounded-full bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-stone-300 hover:text-white transition-colors"
+          title="Security Architecture"
         >
           <Shield className="w-4 h-4" />
         </button>
 
-        <div className="text-center">
-          <h2 className="font-sans text-sm font-semibold tracking-wide text-white/90">
-            BondLock
-          </h2>
-          <span className="text-[10px] text-pink-400/90 font-mono">
-            Zero-Knowledge Dual Vault
-          </span>
-        </div>
+        {/* Real-Time Sync Status Pill */}
+        <button
+          onClick={() => {
+            sound.playSoftClick();
+            setIsPairModalOpen(true);
+          }}
+          className={`px-3 py-1 rounded-full text-[11px] font-mono border flex items-center gap-1.5 transition-all ${
+            partnerConnected
+              ? 'bg-emeraldGlow/15 border-emeraldGlow/40 text-emeraldGlow'
+              : 'bg-[#FF2E93]/15 border-[#FF2E93]/40 text-[#FF4D9D] hover:bg-[#FF2E93]/25'
+          }`}
+          title="Pair Real Phone via QR / WhatsApp"
+        >
+          <span className={`w-2 h-2 rounded-full ${partnerConnected ? 'bg-emeraldGlow' : 'bg-[#FF2E93] animate-ping'}`} />
+          <span>{partnerConnected ? 'Partner Synced' : 'Pair Real Phone'}</span>
+          <QrCode className="w-3 h-3 ml-0.5" />
+        </button>
 
         <button
           onClick={() => {
             sound.playSoftClick();
             setIsDualModalOpen(true);
           }}
-          className="w-9 h-9 rounded-full bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-stone-300 hover:text-white hover:bg-white/15 transition-colors"
+          className="w-9 h-9 rounded-full bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-stone-300 hover:text-white transition-colors"
           title="Dual Phone Simulator"
         >
           <Smartphone className="w-4 h-4 text-neonPink-400" />
         </button>
       </div>
 
-      {/* Main Composition Matching Reference Left Phone: Organic Pill/Circle Avatars with Floating Tags */}
-      <div className="relative my-auto flex flex-col items-center justify-center py-4">
-        
-        {/* Glow backdrop aura */}
+      {/* Main Composition: Organic Cutouts with Floating Tags */}
+      <div className="relative my-auto flex flex-col items-center justify-center py-2">
         <div className="absolute w-72 h-72 rounded-full bg-gradient-to-tr from-[#FF2E93]/20 via-[#A855F7]/20 to-transparent blur-3xl pointer-events-none" />
 
         <div className="relative w-72 h-72 flex items-center justify-center">
           
-          {/* FLOATING TAG 1 (Top Left of Partner 1) */}
+          {/* FLOATING TAG 1 (Partner 1) */}
           <motion.div
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="absolute top-2 left-0 z-30 glass-pill px-3 py-1.5 rounded-full flex items-center gap-1.5 cursor-pointer shadow-lg border border-white/15"
+            className={`absolute top-2 left-0 z-30 glass-pill px-3 py-1.5 rounded-full flex items-center gap-1.5 cursor-pointer shadow-lg border transition-all ${
+              partner1Approved ? 'border-emeraldGlow bg-emeraldGlow/20 text-emeraldGlow' : 'border-white/15'
+            }`}
             onClick={handleTogglePartner1}
           >
-            <span className="w-2 h-2 rounded-full bg-[#FF2E93] animate-pulse" />
+            <span className={`w-2 h-2 rounded-full ${partner1Approved ? 'bg-emeraldGlow' : 'bg-[#FF2E93] animate-pulse'}`} />
             <span className="text-[11px] font-sans font-medium text-stone-100">
-              ❤️ {coupleProfile.partner1.name} (Share 1)
+              ❤️ {coupleProfile.partner1.name} {partner1Approved ? '✓' : '(Share 1)'}
             </span>
           </motion.div>
 
-          {/* FLOATING TAG 2 (Top Right of Partner 2) */}
+          {/* FLOATING TAG 2 (Partner 2) */}
           <motion.div
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: 0.1 }}
-            className="absolute top-8 right-0 z-30 glass-pill px-3 py-1.5 rounded-full flex items-center gap-1.5 cursor-pointer shadow-lg border border-white/15"
+            className={`absolute top-8 right-0 z-30 glass-pill px-3 py-1.5 rounded-full flex items-center gap-1.5 cursor-pointer shadow-lg border transition-all ${
+              partner2Approved ? 'border-emeraldGlow bg-emeraldGlow/20 text-emeraldGlow' : 'border-white/15'
+            }`}
             onClick={handleTogglePartner2}
           >
             <span className="text-[11px] text-amber-300">✨</span>
             <span className="text-[11px] font-sans font-medium text-stone-100">
-              Face ID Active
+              {coupleProfile.partner2.name} {partner2Approved ? '✓' : '(Share 2)'}
             </span>
           </motion.div>
 
-          {/* FLOATING TAG 3 (Bottom Left) */}
+          {/* FLOATING TAG 3 */}
           <motion.div
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -189,7 +264,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
             </span>
           </motion.div>
 
-          {/* FLOATING TAG 4 (Bottom Right) */}
+          {/* FLOATING TAG 4 */}
           <motion.div
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -246,7 +321,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
             )}
           </motion.div>
 
-          {/* Center Intersecting Energy Key Ring */}
+          {/* Center Interlocking Key */}
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-25">
             <InterlockingKey
               partner1Approved={partner1Approved}
@@ -258,58 +333,71 @@ export const LockScreen: React.FC<LockScreenProps> = ({
           </div>
         </div>
 
-        {/* 30s Timeout Indicator */}
+        {/* 30s Security Countdown */}
         {timeRemaining !== null && (
           <motion.div
             initial={{ opacity: 0, y: -4 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mt-2 text-center text-xs font-mono text-amber-300 bg-amber-500/10 border border-amber-500/20 px-3 py-1 rounded-full inline-block"
+            className="mt-2 text-center text-xs font-mono text-amber-300 bg-amber-500/10 border border-amber-500/20 px-3.5 py-1 rounded-full inline-block"
           >
             Waiting for other partner... ({timeRemaining}s)
           </motion.div>
         )}
       </div>
 
-      {/* Hero Typography & CTA matching reference image */}
-      <div className="text-center px-2 pb-3 z-10 flex flex-col items-center">
-        
-        {/* Headline */}
-        <h1 className="font-sans text-2xl sm:text-3xl font-bold tracking-tight text-white mb-2 leading-tight">
+      {/* Hero Typography & CTA */}
+      <div className="text-center px-2 pb-2 z-10 flex flex-col items-center">
+        <h1 className="font-sans text-2xl sm:text-3xl font-bold tracking-tight text-white mb-1.5 leading-tight">
           Two Hearts, One Key.<br />
           <span className="bg-gradient-to-r from-[#FF4D9D] to-[#A855F7] bg-clip-text text-transparent">
             Fall in Love Every Day
           </span>
         </h1>
 
-        {/* Subtitle */}
-        <p className="text-xs text-stone-400 max-w-xs mb-5 leading-relaxed font-sans">
-          Your precious moments are locked with 2-of-2 zero-knowledge encryption. Neither partner can unlock it alone.
+        <p className="text-xs text-stone-400 max-w-xs mb-4 leading-relaxed font-sans">
+          Stored precious moments cannot be unlocked by one person alone. Both partners hold the key.
         </p>
 
-        {/* Primary Glowing Gradient CTA Button */}
+        {/* Primary CTA Button */}
         <motion.button
           onClick={handleSimulateBoth}
           whileTap={{ scale: 0.96 }}
-          className="w-full max-w-xs py-3.5 px-6 rounded-full btn-neon-pink text-white font-bold text-sm tracking-wide flex items-center justify-center gap-2 shadow-pink-glow transition-all mb-3 cursor-pointer"
+          className="w-full max-w-xs py-3.5 px-6 rounded-full btn-neon-pink text-white font-bold text-sm tracking-wide flex items-center justify-center gap-2 shadow-pink-glow transition-all mb-2.5 cursor-pointer"
         >
           <Sparkles className="w-4 h-4 fill-white" />
           <span>Authorize Vault Unlock</span>
         </motion.button>
 
-        {/* Secondary Sub-action links */}
         <div className="flex items-center justify-center gap-3 text-xs text-stone-400">
-          <span>Tap avatars to scan individually</span>
+          <button
+            onClick={() => setIsPairModalOpen(true)}
+            className="text-[#FF4D9D] hover:underline font-semibold flex items-center gap-1"
+          >
+            <QrCode className="w-3.5 h-3.5" />
+            <span>Pair Another Phone</span>
+          </button>
           <span>•</span>
           <button
             onClick={() => setIsDualModalOpen(true)}
-            className="text-[#FF4D9D] hover:underline font-semibold"
+            className="hover:text-stone-200"
           >
-            2 Devices Mode
+            Simulate 2 Phones
           </button>
         </div>
       </div>
 
-      {/* Dual Device Modal */}
+      {/* Real Device Pairing QR & Supabase Modal */}
+      <PairDeviceModal
+        isOpen={isPairModalOpen}
+        onClose={() => setIsPairModalOpen(false)}
+        roomCode={roomCode}
+        coupleProfile={coupleProfile}
+        currentRole={currentRole}
+        onChangeRole={onChangeRole}
+        partnerConnected={partnerConnected}
+      />
+
+      {/* 2-Device Simulation Modal */}
       <DualDeviceModal
         isOpen={isDualModalOpen}
         onClose={() => setIsDualModalOpen(false)}
@@ -317,8 +405,8 @@ export const LockScreen: React.FC<LockScreenProps> = ({
         partner2={coupleProfile.partner2}
         partner1Approved={partner1Approved}
         partner2Approved={partner2Approved}
-        onApprovePartner1={() => setPartner1Approved(true)}
-        onApprovePartner2={() => setPartner2Approved(true)}
+        onApprovePartner1={handleTogglePartner1}
+        onApprovePartner2={handleTogglePartner2}
         onUnlockVault={onUnlockVault}
       />
     </div>
